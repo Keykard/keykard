@@ -13,7 +13,7 @@ import { PasskeyCancelled } from '@/lib/passkey'
 import { explainChainError, getSigner, payRawAddress, payWithCard } from '@/lib/wallet'
 import { Banner, Button, Field, Link, Row, Screen, Text } from '@/ui/kit'
 import { color, font, radius } from '@/ui/theme'
-import { CheckIcon } from '@/ui/Icons'
+import { CardFlowSheet, type FlowState } from '@/ui/CardFlowSheet'
 
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫']
 
@@ -25,9 +25,8 @@ export default function Pay() {
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const [paid, setPaid] = useState<{ tx: string; label: string; amount: string } | null>(null)
+  const [flow, setFlow] = useState<{ state: FlowState; amount: bigint; label: string; kind: 'passkey' | 'password'; hash?: string; error?: string } | null>(null)
   const [demo, setDemo] = useState(false)
-  const [step, setStep] = useState<'approve' | 'confirming' | null>(null)
 
   useEffect(() => {
     if (params.code) setCode(String(params.code).toUpperCase())
@@ -74,39 +73,26 @@ export default function Pay() {
   const pay = async () => {
     if (!line || !merchant || base <= 0n) return
     setErr(null)
-    setBusy(true)
+    let signer
     try {
-      const signer = await getSigner()
-      const tx = await payWithCard(signer, line.creditAccount as Address, code, base, setStep)
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
-      setPaid({ tx, label: merchant, amount: usd(base) })
+      signer = await getSigner() // a password wallet asks for the password first
+    } catch (e: any) {
+      if (!/cancelled/i.test(e?.message)) setErr(e.message)
+      return
+    }
+    const v = base
+    setFlow({ state: 'signing', amount: v, label: merchant, kind: signer.kind })
+    try {
+      const tx = await payWithCard(signer, line.creditAccount as Address, code, v, (st) =>
+        setFlow((f) => (f ? { ...f, state: st === 'approve' ? 'signing' : 'confirming' } : f)),
+      )
+      setFlow((f) => (f ? { ...f, state: 'done', hash: tx } : f))
+      setAmount('')
       void refresh()
     } catch (e: any) {
-      if (!(e instanceof PasskeyCancelled) && !/cancelled/i.test(e?.message)) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
-        setErr(explainChainError(e))
-      }
-    } finally {
-      setBusy(false)
-      setStep(null)
+      if (e instanceof PasskeyCancelled || /cancelled/i.test(e?.message)) setFlow(null)
+      else setFlow((f) => (f ? { ...f, state: 'error', error: explainChainError(e) } : f))
     }
-  }
-
-  if (paid) {
-    return (
-      <Screen scroll={false} style={{ justifyContent: 'center', alignItems: 'center' }}>
-        <Animated.View entering={ZoomIn.springify().damping(14)} style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: color.ok + '22', borderWidth: 2, borderColor: color.ok, alignItems: 'center', justifyContent: 'center' }}>
-          <CheckIcon />
-        </Animated.View>
-        <Animated.View entering={FadeIn.delay(200)} style={{ alignItems: 'center' }}>
-          <Text v="amount" style={{ marginTop: 26 }}>{paid.amount}</Text>
-          <Text v="h3" style={{ marginTop: 4 }}>Paid {paid.label}</Text>
-          <Text v="small" style={{ marginTop: 8, textAlign: 'center' }}>Settling to the merchant now. It shows up in your activity.</Text>
-          <Link title="View receipt on Tempo ↗" style={{ marginTop: 18 }} onPress={() => cfg && WebBrowser.openBrowserAsync(`${cfg.explorerUrl}/tx/${paid.tx}`)} />
-        </Animated.View>
-        <Button testID="pay-done" title="Done" style={{ marginTop: 34, alignSelf: 'stretch' }} onPress={() => router.back()} />
-      </Screen>
-    )
   }
 
   return (
@@ -161,14 +147,9 @@ export default function Pay() {
       </View>
 
       {err && <Banner kind="error">{err}</Banner>}
-      {busy && (
-        <View style={{ height: 3, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.08)', marginTop: 14, overflow: 'hidden' }}>
-          <View style={{ height: 3, width: step === 'confirming' ? '75%' : '30%', backgroundColor: color.accent }} />
-        </View>
-      )}
       <Button
         testID="pay-confirm"
-        title={busy ? (step === 'approve' ? 'Confirm with your fingerprint…' : step === 'confirming' ? 'Confirming on Tempo…' : 'Preparing…') : merchant && base > 0n ? `Pay ${usd(base)} to ${merchant}` : 'Pay with KEYKARD'}
+        title={merchant && base > 0n ? `Pay ${usd(base)} to ${merchant}` : 'Pay with KEYKARD'}
         busy={busy}
         disabled={frozen || !merchant || base <= 0n || over}
         style={{ marginTop: 14 }}
@@ -178,6 +159,28 @@ export default function Pay() {
         Your card can only pay KEYKARD merchants. The blockchain enforces this, not us.
       </Text>
       <Link testID="pay-demo" title="See it refuse a random wallet" style={{ textAlign: 'center', marginTop: 8, paddingVertical: 6 }} onPress={() => setDemo(true)} />
+      <CardFlowSheet
+        visible={!!flow}
+        mode="pay"
+        state={flow?.state ?? 'signing'}
+        title={`Paying ${usd(flow?.amount ?? 0n)} to ${flow?.label ?? ''}`}
+        approveHint={flow?.kind === 'passkey' ? 'Confirm with your fingerprint' : 'Signing with your wallet…'}
+        error={flow?.error}
+        done={flow?.state === 'done' ? {
+          headline: 'Paid',
+          amount: usd(flow.amount),
+          lines: [`To ${flow.label}`, 'Settling to the merchant now. It shows in your activity.'],
+          receiptUrl: cfg && flow.hash ? `${cfg.explorerUrl}/tx/${flow.hash}` : undefined,
+        } : undefined}
+        onCancel={() => setFlow(null)}
+        onClose={() => {
+          const ok = flow?.state === 'done'
+          setFlow(null)
+          if (ok) router.back()
+        }}
+        onRetry={pay}
+        onReceipt={(u) => WebBrowser.openBrowserAsync(u)}
+      />
       <RefusalDemo open={demo} onClose={() => setDemo(false)} creditAccount={line?.creditAccount as Address | undefined} />
     </Screen>
   )

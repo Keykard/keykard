@@ -41,6 +41,11 @@ export async function topUp(row: any, amount: bigint, seq: number) {
   if (amount <= 0n) return
   const r = await moveOnce({ lineId: Number(row.id), kind: 'TOPUP', seq, from: treasury, to: row.credit_account, amount, memoKind: 'FUND' })
   if (r.status !== 'confirmed') throw new Error(`top-up failed: ${r.error}`)
+  // Repaid credit must be spendable again now, not when the card key's period rolls over: re-applying the
+  // limit refills the key's per-period allowance on-chain (verified on testnet: 17.50 → 20.00 remaining).
+  if (row.status === 'active') {
+    await applyLimits(row, 'normal').catch((e) => console.error('[topup] allowance refill failed (repayment still counted):', e?.message))
+  }
 }
 
 async function maybeUpgrade(row: any, onTimeCount: number) {

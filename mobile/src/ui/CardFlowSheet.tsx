@@ -11,7 +11,7 @@ import { KeyMark } from './KeykardCard'
 import { color, font } from './theme'
 
 export type FlowState = CardStep | 'done' | 'error'
-type Mode = 'charge' | 'link'
+type Mode = 'charge' | 'link' | 'pay'
 
 const STEPS: Record<Mode, { label: string; at: CardStep[] }[]> = {
   charge: [
@@ -19,6 +19,11 @@ const STEPS: Record<Mode, { label: string; at: CardStep[] }[]> = {
     { label: 'Card checked', at: ['checking'] },
     { label: 'Signed by the card', at: ['signing'] },
     { label: 'Confirmed on Tempo', at: ['confirming'] },
+  ],
+  pay: [
+    { label: 'Approved by you', at: ['signing'] },
+    { label: 'Confirmed on Tempo', at: ['confirming'] },
+    { label: 'Paid to the merchant', at: [] },
   ],
   link: [
     { label: 'Card tapped', at: ['signing'] },
@@ -73,6 +78,7 @@ export function CardFlowSheet(p: {
   onClose: () => void
   onRetry?: () => void
   onReceipt?: (url: string) => void
+  approveHint?: string
 }) {
   const steps = STEPS[p.mode]
   const idx = stepIndex(p.mode, p.state)
@@ -82,19 +88,21 @@ export function CardFlowSheet(p: {
   useEffect(() => {
     if (prev.current === p.state) return
     prev.current = p.state
-    if (p.state === 'reading' || (p.mode === 'link' && p.state === 'signing')) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+    if (p.state === 'reading' || (p.mode === 'link' && p.state === 'signing') || (p.mode === 'pay' && p.state === 'confirming')) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
     if (p.state === 'confirming' || p.state === 'linking') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
     if (p.state === 'done') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
     if (p.state === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
   }, [p.state, p.mode])
 
   const working = idx >= 0 && idx < steps.length
-  const cardFree = p.state === 'confirming' || p.state === 'linking'
+  const cardFree = p.mode !== 'pay' && (p.state === 'confirming' || p.state === 'linking')
   const headline =
-    p.state === 'hold' ? 'Hold the card flat against the back of the phone'
-    : cardFree ? 'You can remove the card'
-    : working ? 'Keep holding the card…'
-    : ''
+    p.mode === 'pay'
+      ? p.state === 'signing' ? (p.approveHint ?? 'Approve the payment…') : p.state === 'confirming' ? 'Sending to Tempo…' : ''
+      : p.state === 'hold' ? 'Hold the card flat against the back of the phone'
+      : cardFree ? 'You can remove the card'
+      : working ? 'Keep holding the card…'
+      : ''
   const progress = p.state === 'done' ? 1 : Math.max(0, idx) / steps.length + (working ? 0.5 / steps.length : 0)
 
   return (
@@ -102,9 +110,9 @@ export function CardFlowSheet(p: {
       <SafeAreaView style={{ flex: 1, backgroundColor: color.bg }}>
         <View style={st.bar}><View style={[st.barFill, { width: `${Math.round(progress * 100)}%`, backgroundColor: p.state === 'error' ? color.bad : p.state === 'done' ? color.ok : color.accent }]} /></View>
         <View style={{ flex: 1, padding: 24 }}>
-          <Text v="eyebrow">{p.mode === 'charge' ? 'Tap to charge' : 'Link a physical card'}</Text>
+          <Text v="eyebrow">{p.mode === 'charge' ? 'Tap to charge' : p.mode === 'pay' ? 'Pay with KEYKARD' : 'Link a physical card'}</Text>
           <Text v="h1" style={{ marginTop: 8 }}>
-            {p.state === 'done' ? (p.mode === 'charge' ? 'Payment complete' : 'Card linked') : p.state === 'error' ? (p.mode === 'charge' ? 'Charge didn’t go through' : 'Card not linked') : p.title}
+            {p.state === 'done' ? (p.mode === 'link' ? 'Card linked' : 'Payment complete') : p.state === 'error' ? (p.mode === 'charge' ? 'Charge didn’t go through' : p.mode === 'pay' ? 'Payment didn’t go through' : 'Card not linked') : p.title}
           </Text>
 
           {p.state === 'done' && p.done ? (
@@ -152,7 +160,7 @@ export function CardFlowSheet(p: {
               </View>
               <View style={{ flex: 1 }} />
               {p.state === 'hold' && <Button testID="flow-cancel" title="Cancel" kind="ghost" onPress={p.onCancel} />}
-              {working && !cardFree && <Text v="small" style={{ textAlign: 'center', color: color.text3 }}>Don’t move the card until the phone vibrates.</Text>}
+              {working && !cardFree && p.mode !== 'pay' && <Text v="small" style={{ textAlign: 'center', color: color.text3 }}>Don’t move the card until the phone vibrates.</Text>}
             </View>
           )}
         </View>
