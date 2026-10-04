@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { View } from 'react-native'
-import { Stack } from 'expo-router'
+import { Stack, usePathname } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import * as SplashScreen from 'expo-splash-screen'
 import * as SystemUI from 'expo-system-ui'
@@ -14,6 +14,15 @@ import { color } from '@/ui/theme'
 
 SplashScreen.preventAutoHideAsync().catch(() => {})
 SystemUI.setBackgroundColorAsync(color.bg).catch(() => {})
+
+/** One log line per screen change (visible in `adb logcat`): proves navigation isn't looping. */
+function NavLog() {
+  const pathname = usePathname()
+  useEffect(() => {
+    console.log('[nav] screen', pathname)
+  }, [pathname])
+  return null
+}
 
 export default function Root() {
   const [fonts] = useFonts({ Geist_300Light, Geist_400Regular, Geist_500Medium, Geist_600SemiBold, Geist_700Bold, GeistMono_400Regular, GeistMono_500Medium })
@@ -41,6 +50,7 @@ export default function Root() {
           <Stack.Screen name="scan" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
         </Stack>
         <PasswordPromptHost />
+        <NavLog />
       </SessionProvider>
     </SafeAreaProvider>
   )

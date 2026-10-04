@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Go } from '@/ui/Go'
 import { Pressable, RefreshControl, ScrollView, View } from 'react-native'
-import { Redirect, router, useFocusEffect } from 'expo-router'
+import { router, useFocusEffect } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import * as WebBrowser from 'expo-web-browser'
 import { api } from '@/lib/api'
@@ -56,7 +57,7 @@ export default function Home() {
     return () => clearInterval(t)
   }, [])
 
-  if (!loading && (!me?.user || me.user.role !== 'borrower' || !me.line || me.line.status === 'preparing')) return <Redirect href={homeFor(me) as any} />
+  if (!loading && (!me?.user || me.user.role !== 'borrower' || !me.line || me.line.status === 'preparing')) return <Go href={homeFor(me) as any} />
   if (!me?.line || !cfg) return <SafeAreaView style={{ flex: 1, backgroundColor: color.bg }} />
 
   const line = me.line

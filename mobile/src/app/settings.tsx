@@ -1,4 +1,5 @@
 import { Alert, View } from 'react-native'
+import { resetTo } from '@/lib/nav'
 import { router } from 'expo-router'
 import * as WebBrowser from 'expo-web-browser'
 import Constants from 'expo-constants'
@@ -17,7 +18,7 @@ export default function Settings() {
   const out = async () => {
     await signOut()
     await refresh()
-    router.replace('/welcome')
+    resetTo('/welcome')
   }
   return (
     <Screen>
@@ -53,7 +54,7 @@ export default function Settings() {
           Alert.alert(
             'Forget KEYKARD on this phone?',
             'This signs you out and removes the saved wallet from this phone. Your account and card are not deleted: sign in again with your passkey or password.',
-            [{ text: 'Cancel', style: 'cancel' }, { text: 'Forget', style: 'destructive', onPress: async () => { await startOver(); await refresh(); router.replace('/welcome') } }],
+            [{ text: 'Cancel', style: 'cancel' }, { text: 'Forget', style: 'destructive', onPress: async () => { await startOver(); await refresh(); resetTo('/welcome') } }],
           )
         }
       />

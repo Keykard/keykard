@@ -1,4 +1,5 @@
 import { router } from 'expo-router'
+import { resetTo } from '@/lib/nav'
 import { View } from 'react-native'
 import type { Me } from '@/lib/session'
 import { signOut } from '@/lib/wallet'
@@ -10,7 +11,7 @@ export const displayName = (me: Me | null) => (me?.user?.username ? `@${me.user.
 
 export async function switchAccount(after = '/welcome') {
   await signOut()
-  router.replace(after as any)
+  resetTo(after)
 }
 
 /** Shown when the signed-in account is the wrong kind for this flow. */

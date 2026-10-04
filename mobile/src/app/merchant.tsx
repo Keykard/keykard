@@ -1,7 +1,8 @@
 import { useReaderGuard } from '@/lib/useReaderGuard'
+import { Go } from '@/ui/Go'
 import { useCallback, useEffect, useState } from 'react'
 import { Pressable, RefreshControl, ScrollView, Share, View } from 'react-native'
-import { Redirect, router, useFocusEffect } from 'expo-router'
+import { router, useFocusEffect } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
 import * as WebBrowser from 'expo-web-browser'
@@ -44,7 +45,7 @@ export default function Merchant() {
     return () => clearInterval(t)
   }, [load]))
 
-  if (!loading && (!me?.user || me.user.role !== 'merchant' || !me.identity.verified)) return <Redirect href={homeFor(me) as any} />
+  if (!loading && (!me?.user || me.user.role !== 'merchant' || !me.identity.verified)) return <Go href={homeFor(me) as any} />
 
   return (
     <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: color.bg }}>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Redirect } from 'expo-router'
+import { Go } from '@/ui/Go'
 import { ActivityIndicator, View } from 'react-native'
 import { getToken } from '@/lib/api'
 import { homeFor, useSession } from '@/lib/session'
@@ -24,6 +24,6 @@ export default function Index() {
       </Screen>
     )
   }
-  if (!signedIn || !me) return <Redirect href="/welcome" />
-  return <Redirect href={homeFor(me) as any} />
+  if (!signedIn || !me) return <Go href="/welcome" />
+  return <Go href={homeFor(me) as any} />
 }

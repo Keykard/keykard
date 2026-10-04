@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { resetTo } from '@/lib/nav'
 import { View } from 'react-native'
 import { router } from 'expo-router'
 import * as Haptics from 'expo-haptics'
@@ -27,7 +28,7 @@ export default function SignIn() {
       await fn()
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
       await refresh()
-      router.replace('/')
+      resetTo('/')
     } catch (e: any) {
       if (!(e instanceof PasskeyCancelled)) setErr(e.message ?? String(e))
     } finally {

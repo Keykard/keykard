@@ -1,5 +1,6 @@
 import { Pressable, View } from 'react-native'
-import { Redirect, router } from 'expo-router'
+import { Go } from '@/ui/Go'
+import { router } from 'expo-router'
 import { short, usd } from '@/lib/format'
 import { homeFor, useSession } from '@/lib/session'
 import { Panel, Row, Screen, Text } from '@/ui/kit'
@@ -14,7 +15,7 @@ const LINE: Record<string, [string, string]> = {
 /** Home for family backups: who you back, for how much, and how they're doing. */
 export default function Backing() {
   const { me, loading } = useSession()
-  if (!loading && (!me?.user || me.user.role !== 'guarantor' || !me.identity.verified)) return <Redirect href={homeFor(me) as any} />
+  if (!loading && (!me?.user || me.user.role !== 'guarantor' || !me.identity.verified)) return <Go href={homeFor(me) as any} />
   const list = me?.guaranteeing ?? []
   return (
     <Screen>

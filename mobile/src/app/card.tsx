@@ -1,4 +1,5 @@
-import { Redirect, useLocalSearchParams } from 'expo-router'
+import { useLocalSearchParams } from 'expo-router'
+import { Go } from '@/ui/Go'
 import { codeFromQr } from '@/lib/qr'
 import { homeFor, useSession } from '@/lib/session'
 
@@ -7,8 +8,8 @@ export default function CardLink() {
   const { pay } = useLocalSearchParams<{ pay?: string }>()
   const { me, loading, signedIn } = useSession()
   if (loading) return null
-  if (!signedIn || !me) return <Redirect href="/welcome" />
+  if (!signedIn || !me) return <Go href="/welcome" />
   const code = pay ? codeFromQr(String(pay)) : null
-  if (code && me.user?.role === 'borrower' && me.line?.status === 'active') return <Redirect href={{ pathname: '/pay', params: { code } }} />
-  return <Redirect href={homeFor(me) as any} />
+  if (code && me.user?.role === 'borrower' && me.line?.status === 'active') return <Go href={{ pathname: '/pay', params: { code } }} />
+  return <Go href={homeFor(me) as any} />
 }
