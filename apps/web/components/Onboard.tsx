@@ -8,6 +8,7 @@ import { createDeviceKey, deriveAuthProof, deviceVault, importVaultAndUnlock, un
 import { COUNTRIES } from './countries'
 import { StartOver } from './StartOver'
 import { Stepper } from './Stepper'
+import { selfStatusMessage } from '@keycard/sdk'
 import { PasswordInput } from './PasswordInput'
 
 type Role = 'borrower' | 'guarantor' | 'merchant'
@@ -280,9 +281,10 @@ export function Onboard({ role, onReady }: { role: Role; onReady: (me: Me) => vo
             </>
           )}
           {polling && <p className="small notice">Waiting for Self… this page updates by itself when your proof arrives.</p>}
-          {me?.identity.selfStatus && me.identity.selfStatus !== 'pending' && !me.identity.verified && (
-            <p className="error small">Last verification: {me.identity.selfStatus}. Please try again.</p>
-          )}
+          {(() => {
+            const m = me && !me.identity.verified ? selfStatusMessage(me.identity.selfStatus) : null
+            return m ? <p className={`${m.kind === 'error' ? 'error' : 'notice'} small`}>{m.text}</p> : null
+          })()}
         </div>
       )}
       {step >= 1 && <StartOver />}

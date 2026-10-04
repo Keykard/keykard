@@ -5,6 +5,7 @@ import * as Haptics from 'expo-haptics'
 import { api } from '@/lib/api'
 import { short, usd } from '@/lib/format'
 import { cancelCardRead, nfcState, openNfcSettings } from '@/lib/halo'
+import { useReaderGuard } from '@/lib/useReaderGuard'
 import { useSession } from '@/lib/session'
 import { explainChainError, linkPhysicalCard } from '@/lib/wallet'
 import { Banner, Button, Link, Panel, Screen, Text } from '@/ui/kit'
@@ -22,6 +23,7 @@ export default function Physical() {
   const card = line?.card
   const linked = card && (card.status === 'active' || card.status === 'frozen')
   const canLink = line?.status === 'active'
+  useReaderGuard()
 
   useEffect(() => {
     nfcState().then(setNfc)

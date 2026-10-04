@@ -25,6 +25,47 @@ export async function nfcState(): Promise<'ok' | 'off' | 'none'> {
 }
 export const openNfcSettings = () => NfcManager.goToNfcSetting().catch(() => {})
 
+/*
+ * Reader guard. While a screen that takes cards is open, the app keeps Android's NFC reader in reader mode and
+ * ignores any card that isn't part of a payment. Without it, a Burner card resting on the phone is re-detected
+ * again and again and Android tries to open the link stored on it, pausing the app each time (a "blackout" that
+ * also dismissed the payment sheet).
+ */
+const READER = {
+  isReaderModeEnabled: true,
+  readerModeFlags: NfcAdapter.FLAG_READER_NFC_A | NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK | NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS,
+  readerModeDelay: 0,
+}
+let guards = 0
+let registered = false
+
+async function holdReader() {
+  if (registered) return
+  await NfcManager.start()
+  await NfcManager.registerTagEvent(READER as any)
+  registered = true
+}
+async function dropReader() {
+  if (!registered) return
+  registered = false
+  await NfcManager.unregisterTagEvent().catch(() => {})
+}
+
+/** Call while a card-taking screen is focused; returns the release function. */
+export function guardReader(): () => void {
+  guards++
+  nfcState().then((st) => {
+    if (st === 'ok' && guards > 0) holdReader().catch(() => {})
+  })
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    guards = Math.max(0, guards - 1)
+    if (guards === 0 && !busy) void dropReader()
+  }
+}
+
 export type CardSession = {
   /** run a libhalo command on the card that is being held */
   exec: (cmd: any) => Promise<any>
@@ -56,11 +97,12 @@ export async function withCard<T>(fn: (s: CardSession) => Promise<T>, onTapped?:
   }
   try {
     await NfcManager.start()
-    await NfcManager.requestTechnology(NfcTech.IsoDep, {
-      isReaderModeEnabled: true,
-      readerModeFlags: NfcAdapter.FLAG_READER_NFC_A | NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK,
-      alertMessage: 'Hold your KEYKARD near the phone',
-    } as any)
+    // restart reader mode so a card that is already resting on the phone is picked up straight away
+    await dropReader()
+    await NfcManager.requestTechnology(NfcTech.IsoDep, { ...READER, alertMessage: 'Hold your KEYKARD near the phone' } as any)
+    // keep the registration when this request ends: the reader stays guarded between payments
+    ;(NfcManager as any).cleanUpTagRegistration = false
+    registered = true
     onTapped?.()
     const session: CardSession = {
       exec: async (cmd) => {
@@ -76,10 +118,11 @@ export async function withCard<T>(fn: (s: CardSession) => Promise<T>, onTapped?:
     throw friendly(e)
   } finally {
     busy = false
-    await NfcManager.cancelTechnologyRequest().catch(() => {})
+    await NfcManager.cancelTechnologyRequest({ delayMsAndroid: 0 } as any).catch(() => {})
+    if (guards === 0) await dropReader()
   }
 }
-export const cancelCardRead = () => NfcManager.cancelTechnologyRequest().catch(() => {})
+export const cancelCardRead = () => NfcManager.cancelTechnologyRequest({ delayMsAndroid: 0 } as any).catch(() => {})
 
 const hex0x = (s: string) => (s.startsWith('0x') ? s : `0x${s}`) as Hex
 

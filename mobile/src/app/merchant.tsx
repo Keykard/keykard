@@ -1,3 +1,4 @@
+import { useReaderGuard } from '@/lib/useReaderGuard'
 import { useCallback, useEffect, useState } from 'react'
 import { Pressable, RefreshControl, ScrollView, Share, View } from 'react-native'
 import { Redirect, router, useFocusEffect } from 'expo-router'
@@ -99,6 +100,7 @@ function Register({ onDone }: { onDone: () => void }) {
 
 function Till({ dash, explorer, web, onPaid }: { dash: Dash; explorer?: string; web: string; onPaid: () => void }) {
   const payLink = `${web}/card?pay=${dash.merchant.code}`
+  useReaderGuard()
   const [amount, setAmount] = useState('')
   const [nfc, setNfc] = useState<'ok' | 'off' | 'none' | null>(null)
   const [flow, setFlow] = useState<{ state: FlowState; amount: bigint; error?: string; hash?: string; card?: string } | null>(null)

@@ -23,3 +23,4 @@ export const FreezeReason = { None: 0, MandateRevoked: 1, MissedPayment: 2, Manu
 
 /** Tempo AccountKeychain precompile (viem tempo/Addresses.ts). */
 export const ACCOUNT_KEYCHAIN = '0xaAAAaaAA00000000000000000000000000000000' as const
+export * from './selfStatus'

@@ -79,25 +79,41 @@ export async function handleSelfWebhook(rawBody: string, headers: Record<string,
     return
   }
   // The proof must come from the flow we configured for this role (not a weaker flow).
+  // a valid proof that we can't use: record WHY on the session, so the app can tell the person exactly what to do
+  const reject = (status: string) => sql`UPDATE self_sessions SET status=${status}, updated_at=now() WHERE id=${session.id}`
   if (event.flow_id !== session.flow_id) {
+    await reject('flow_mismatch')
     await audit({ actor: 'servicer', action: 'self.flow_mismatch', detail: { wallet: session.wallet, got: event.flow_id } })
     return
   }
   if (env.TEMPO_NETWORK === 'mainnet' && event.environment !== 'live') {
+    await reject('test_proof')
     await audit({ actor: 'servicer', action: 'self.test_proof_on_mainnet', detail: { wallet: session.wallet } })
     return
   }
 
   const flags = session.role === 'guarantor' ? GUARANTOR_FLAGS : BORROWER_FLAGS
   const nationality = session.role === 'guarantor' ? pickNationality(event.proof_attributes) : null
-  await attestWallet({
-    wallet: session.wallet as Address,
-    nullifier: event.nullifier,
-    flags,
-    expiresAt: new Date(Date.now() + ATTESTATION_TTL_DAYS * 86400_000),
-    nationality,
-    selfSessionId: session.id,
-  })
+  try {
+    await attestWallet({
+      wallet: session.wallet as Address,
+      nullifier: event.nullifier,
+      flags,
+      expiresAt: new Date(Date.now() + ATTESTATION_TTL_DAYS * 86400_000),
+      nationality,
+      selfSessionId: session.id,
+    })
+  } catch (e: any) {
+    if (/already linked/i.test(String(e?.message))) {
+      // one passport = one KEYKARD: final, not worth retrying
+      await reject('duplicate')
+      await audit({ actor: 'servicer', action: 'self.duplicate_identity', detail: { wallet: session.wallet } })
+      return
+    }
+    // anything else (e.g. the chain was briefly unreachable): keep it retryable, Self redelivers the webhook
+    console.error('[self] attestation failed, will retry on redelivery:', e?.message)
+    throw e
+  }
 }
 
 export const devVerifyEnabled = () => env.ALLOW_DEV_VERIFY === '1' && env.TEMPO_NETWORK === 'testnet'

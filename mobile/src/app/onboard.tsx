@@ -9,6 +9,7 @@ import { PasskeyCancelled, passkeysSupported } from '@/lib/passkey'
 import { useSession, type Role } from '@/lib/session'
 import { createPasskey, explainChainError, getSigner, registrationForDeviceKey, signIn, signMandate } from '@/lib/wallet'
 import { duration, short, usd } from '@/lib/format'
+import { selfStatusMessage } from '@keycard/sdk'
 import { Banner, Button, Check, Field, Link, Panel, Row, Screen, Segmented, Stepper, Text } from '@/ui/kit'
 import { CountryPicker } from '@/ui/CountryPicker'
 import { KeykardCard } from '@/ui/KeykardCard'
@@ -264,7 +265,10 @@ function VerifyStep({ role, onVerified }: { role: Role; onVerified: () => Promis
       </Text>
       {role === 'guarantor' && <Text v="small" style={{ marginTop: 6 }}>As a family backup, your nationality is also shared so we can check the family corridor.</Text>}
       {cfg && !cfg.selfEnabled && <Banner kind="info">Identity verification (Self) isn’t switched on for this server yet.</Banner>}
-      {last && last !== 'pending' && !me?.identity.verified && <Banner kind="error">{`Last verification: ${last}. Please try again.`}</Banner>}
+      {(() => {
+        const m = !me?.identity.verified ? selfStatusMessage(last) : null
+        return m ? <Banner kind={m.kind}>{m.text}</Banner> : null
+      })()}
       {err && <Banner kind="error">{err}</Banner>}
       <Button testID="verify-self" title={waiting ? 'Open Self again' : 'Verify with Self'} busy={busy} disabled={!cfg?.selfEnabled} style={{ marginTop: 16 }} onPress={verify} />
       {waiting && <Banner kind="info">Waiting for Self… this screen continues by itself when your proof arrives.</Banner>}
