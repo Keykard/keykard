@@ -73,6 +73,10 @@ app.get('/api/config', async (c) => {
 
 app.get('/api/stats', async (c) => c.json(await stats()))
 
+// Which build is live (Railway sets RAILWAY_GIT_COMMIT_SHA on every deploy).
+const startedAt = new Date().toISOString()
+app.get('/api/version', (c) => c.json({ commit: process.env.RAILWAY_GIT_COMMIT_SHA ?? 'local', startedAt }))
+
 // ---------------- registration + auth ----------------
 app.get('/api/auth/register-challenge', (c) => c.json(issueRegistrationChallenge()))
 
