@@ -48,7 +48,7 @@ export function SecureNudge({ username, sec, onChange }: { username: string; sec
       <div className="error" role="alert">
         <b>Someone started recovering this account.</b> {sec.openRecovery.status === 'waiting' && sec.openRecovery.readyAt
           ? <>If nothing is done, access moves to their new password at {new Date(sec.openRecovery.readyAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.</>
-          : <>They still have to pass the passport check.</>} If this wasn’t you, cancel it now.
+          : <>They still have to verify with Self.</>} If this wasn’t you, cancel it now.
         <button className="block" style={{ marginTop: 10 }} disabled={busy !== null} onClick={run('cancel', cancelRecovery)}>
           {busy === 'cancel' ? 'Cancelling…' : 'It wasn’t me: cancel recovery'}
         </button>
@@ -79,7 +79,7 @@ export function SecureNudge({ username, sec, onChange }: { username: string; sec
       <div className="notice">
         <b>Turn on account recovery</b>
         <p className="small" style={{ margin: '6px 0 10px' }}>
-          If you ever lose both your password and your passkey, your passport gets you back into this same account after a safety wait.
+          If you ever lose both your password and your passkey, verifying with Self again gets you back into this same account after a safety wait.
           KEYKARD can’t use it for anything else, and you can turn it off any time.
         </p>
         <button className="block" disabled={busy !== null} onClick={run('rec', () => setRecovery(true))}>{busy === 'rec' ? 'Turning on…' : 'Turn on recovery'}</button>
@@ -190,7 +190,7 @@ export function SecurityPanel({ username, sec, onChange }: { username: string; s
           <b>Account recovery</b>
           <small>
             {sec.recoveryOn
-              ? 'On. Lost your password and passkey? Your passport gets you back in after a safety wait.'
+              ? 'On. Lost your password and passkey? Verify with Self again and you’re back in after a safety wait.'
               : 'Off. If you lose your password and every passkey, nobody can restore access, including KEYKARD.'}
           </small>
         </span>

@@ -184,7 +184,7 @@ export function drawBack(ctx: CanvasRenderingContext2D) {
   ctx.fillText('Verified human', 64, 300)
   ctx.fillStyle = 'rgba(245,245,247,0.6)'
   ctx.font = `400 25px ${fontFamily()}`
-  const lines = ['Unique person, proven with a zero-knowledge', 'passport check. No documents stored.']
+  const lines = ['Unique person, proven with a zero-knowledge', 'ID check. No documents stored.']
   lines.forEach((l, i) => ctx.fillText(l, 64, 350 + i * 36))
   ctx.fillStyle = ACCENT_HI
   ctx.font = `700 22px ${fontFamily()}`

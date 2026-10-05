@@ -40,7 +40,7 @@ export function SecureNudge({ username, sec, onChange }: { username?: string | n
         <Text v="small" style={{ color: '#FFB3B3', marginTop: 4 }}>
           {sec.openRecovery.status === 'waiting' && sec.openRecovery.readyAt
             ? `If nothing is done, access moves to their new password at ${new Date(sec.openRecovery.readyAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.`
-            : 'They still have to pass the passport check.'}{' '}
+            : 'They still have to verify with Self.'}{' '}
           If this wasn’t you, cancel it now.
         </Text>
         <Button testID="nudge-cancel-recovery" title={busy === 'cancel' ? 'Cancelling…' : 'It wasn’t me: cancel recovery'} busy={busy === 'cancel'} style={{ marginTop: 12 }} onPress={run('cancel', cancelRecovery)} />
@@ -65,7 +65,7 @@ export function SecureNudge({ username, sec, onChange }: { username?: string | n
       <Banner kind="info">
         <Text style={{ color: color.text, fontFamily: font.semibold }}>Turn on account recovery</Text>
         <Text v="small" style={{ marginTop: 4 }}>
-          If you ever lose both your password and your passkey, your passport gets you back into this same account after a safety wait. KEYKARD can’t use it for anything else, and you can turn it off any time.
+          If you ever lose both your password and your passkey, verifying with Self again gets you back into this same account after a safety wait. KEYKARD can’t use it for anything else, and you can turn it off any time.
         </Text>
         <Button testID="nudge-recovery" title={busy === 'rec' ? 'Turning on…' : 'Turn on recovery'} busy={busy === 'rec'} style={{ marginTop: 12 }} onPress={run('rec', () => setRecovery(true))} />
         {err && <Text v="small" style={{ color: color.bad, marginTop: 8 }}>{err}</Text>}
@@ -182,7 +182,7 @@ export function SecurityPanel({ username, sec, onChange }: { username?: string |
           <Text style={{ color: color.text, fontFamily: font.medium }}>Account recovery</Text>
           <Text v="small">
             {sec.recoveryOn
-              ? 'On. Lost your password and passkey? Your passport gets you back in after a safety wait.'
+              ? 'On. Lost your password and passkey? Verify with Self again and you’re back in after a safety wait.'
               : 'Off. If you lose your password and every passkey, nobody can restore access, including KEYKARD.'}
           </Text>
         </View>

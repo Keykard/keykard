@@ -299,14 +299,14 @@ export function AuthFlow({ role, lockRole, onDone }: { role: Role; lockRole?: bo
             </View>
           )}
           <View style={{ marginTop: 12, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: color.hairline, backgroundColor: color.surface2 }}>
-            <Text style={{ color: color.text, fontFamily: font.medium }}>{account.passkeys.length > 0 ? 'Lost your passkey too?' : 'Recover with your passport'}</Text>
+            <Text style={{ color: color.text, fontFamily: font.medium }}>{account.passkeys.length > 0 ? 'Lost your passkey too?' : 'Recover with Self'}</Text>
             {account.recovery ? (
               <>
-                <Text v="small" style={{ marginTop: 4 }}>Choose a new password, then scan the passport you verified with. For your safety, access comes back after a short wait.</Text>
-                <Button testID="auth-recover" title="Recover with passport" kind="ghost" disabled={!!busy} style={{ marginTop: 12 }} onPress={() => (setPw(''), go('recover'))} />
+                <Text v="small" style={{ marginTop: 4 }}>Choose a new password, then verify again with Self using the same ID you signed up with. For your safety, access comes back after a short wait.</Text>
+                <Button testID="auth-recover" title="Recover with Self" kind="ghost" disabled={!!busy} style={{ marginTop: 12 }} onPress={() => (setPw(''), go('recover'))} />
               </>
             ) : (
-              <Text v="small" style={{ marginTop: 4 }}>This account can’t be recovered with a passport: it never verified one, or its owner turned account recovery off.</Text>
+              <Text v="small" style={{ marginTop: 4 }}>This account can’t be recovered with Self: it never verified with Self, or its owner turned account recovery off.</Text>
             )}
           </View>
         </>
@@ -326,7 +326,7 @@ export function AuthFlow({ role, lockRole, onDone }: { role: Role; lockRole?: bo
         <>
           <Link title="‹ Back" onPress={() => go('forgot')} />
           <Text v="h2" style={{ marginTop: 12 }}>Recover @{normUsername(username)}</Text>
-          {['Choose a new password.', 'Scan the passport you verified with, in the Self app.', 'Wait a short time, then you’re back in: same card, same money.'].map((t, i) => (
+          {['Choose a new password.', 'Verify with Self, using the same ID you signed up with.', 'Wait a short time, then you’re back in: same card, same money.'].map((t, i) => (
             <Row key={i} style={{ alignItems: 'flex-start', marginTop: 10 }}>
               <Text style={{ color: color.accentHi, fontFamily: font.monoMedium, width: 18 }}>{i + 1}</Text>
               <Text v="small" style={{ flex: 1, color: color.text }}>{t}</Text>
@@ -337,7 +337,7 @@ export function AuthFlow({ role, lockRole, onDone }: { role: Role; lockRole?: bo
           {canPasskey && (
             <Check checked={withPasskey} onChange={setWithPasskey}>Also add this phone’s fingerprint or face</Check>
           )}
-          <Button testID="auth-recover-go" title={busy === 'recover' ? 'Preparing…' : 'Continue to passport check'} busy={busy === 'recover'} disabled={!!busy || strength.score === 0} style={{ marginTop: 16 }} onPress={beginRecovery} />
+          <Button testID="auth-recover-go" title={busy === 'recover' ? 'Preparing…' : 'Continue to Self'} busy={busy === 'recover'} disabled={!!busy || strength.score === 0} style={{ marginTop: 16 }} onPress={beginRecovery} />
         </>
       )}
 
@@ -402,7 +402,7 @@ function RecoveryWait({ password, onDone, onRestart }: { password: string; onDon
   const fmt = (s: number) => (s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min` : s >= 60 ? `${Math.floor(s / 60)} min ${s % 60}s` : `${s}s`)
   const steps: [string, 'done' | 'on' | 'todo'][] = [
     ['New password set on this phone', 'done'],
-    ['Passport checked with Self', st?.status === 'awaiting_self' || !st ? 'on' : st.status === 'failed' ? 'todo' : 'done'],
+    ['Verified with Self', st?.status === 'awaiting_self' || !st ? 'on' : st.status === 'failed' ? 'todo' : 'done'],
     ['Safety wait', st?.status === 'waiting' ? 'on' : st?.status === 'completed' ? 'done' : 'todo'],
     ['Signed back in', st?.status === 'completed' ? 'on' : 'todo'],
   ]
@@ -421,13 +421,13 @@ function RecoveryWait({ password, onDone, onRestart }: { password: string; onDon
       </View>
       {(!st || st.status === 'awaiting_self') && (
         <>
-          <Text v="small" style={{ marginTop: 14 }}>Scan your passport in the Self app. This screen moves on by itself when it’s done.</Text>
+          <Text v="small" style={{ marginTop: 14 }}>Verify in the Self app. This screen moves on by itself when it’s done.</Text>
         </>
       )}
       {st?.status === 'waiting' && (
         <Banner kind="info">
           <Text v="small" style={{ color: color.text }}>
-            Passport matched. For your safety, access comes back in {left !== null ? fmt(left) : '…'}. If someone else started this, the account owner can cancel it from any device they’re still signed in on.
+            Your Self ID matches this account. For your safety, access comes back in {left !== null ? fmt(left) : '…'}. If someone else started this, the account owner can cancel it from any device they’re still signed in on.
           </Text>
         </Banner>
       )}
@@ -440,7 +440,7 @@ function RecoveryWait({ password, onDone, onRestart }: { password: string; onDon
       )}
       {st?.status === 'failed' && (
         <>
-          <Banner kind="error">{st.error === 'passport_mismatch' ? 'That passport isn’t the one this account was verified with.' : 'The passport check didn’t go through.'}</Banner>
+          <Banner kind="error">{st.error === 'passport_mismatch' ? 'That isn’t the ID this account was verified with.' : 'The Self verification didn’t go through.'}</Banner>
           <Button title="Start again" kind="ghost" style={{ marginTop: 12 }} onPress={onRestart} />
         </>
       )}

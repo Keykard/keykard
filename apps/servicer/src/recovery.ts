@@ -33,7 +33,7 @@ export async function startRecovery(p: {
   const [user] = await sql`SELECT wallet, role FROM users WHERE username=${username}`
   if (!user) throw new UserError('no KEYKARD account with that username', 404)
   const [att] = await sql`SELECT nullifier_hash FROM attestations WHERE wallet=${user.wallet}`
-  if (!att) throw new UserError('this account never verified a passport, so it can’t be recovered with one')
+  if (!att) throw new UserError('this account never verified with Self, so it can’t be recovered with Self')
   if (!(await recoverySigner(user.wallet))) throw new UserError('account recovery is turned off for this account')
   const pw = await verifyKeyRegistration({ ...p.password.keyRegistration, signature: p.password.keyRegistration.signature })
   if (!/^[0-9a-f]{64}$/.test(p.password.authProof)) throw new UserError('invalid login proof')

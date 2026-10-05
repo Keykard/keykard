@@ -27,7 +27,7 @@ const ROADMAP = [
 const FAQ = [
   ['Is this real money?', 'KEYKARD runs on Tempo with real stablecoins. The pilot is live on Tempo testnet with small limits while we finish mainnet launch.'],
   ['Can KEYKARD take more than I agreed?', 'No. The auto-pay permission is scoped on-chain: one bill per period, capped, and payable only to KEYKARD. The Tempo protocol rejects anything else, even from us.'],
-  ['How do you verify who I am (KYC)?', 'With Self. You tap your passport’s chip on your phone and Self proves, with zero knowledge, that the passport is genuine and government-issued, that you are over 18, not on a sanctions list, and one unique person. We receive the proof, never the document. That check is what lets us lend without a bank account or a credit score.'],
+  ['How do you verify who I am (KYC)?', 'With Self. You verify your passport or ID card in the Self app, and Self proves, with zero knowledge, that the document is genuine and government-issued, that you are over 18, not on a sanctions list, and one unique person. We receive the proof, never the document. That check is what lets us lend without a bank account or a credit score.'],
   ['What happens if I miss a payment?', 'Your card pauses and the app shows exactly what’s due and the deadline. A missed bill costs a $1 late fee, then 2% of the overdue amount each billing period, never more than 25% of it in total; family backups never pay fees. Past the deadline it’s recorded on your public credit file, and paying it settles your record. The terms are published on-chain.'],
   ['Can I borrow more?', 'Yes. Pay on time and your limit climbs on its own. To go higher straight away, lock stablecoins as collateral and your limit grows 1:1. The collateral sits in an on-chain vault; KEYKARD can only take it after a default, and only what you owe.'],
   ['Can I repay from an exchange or another wallet?', 'Yes. Every card has its own repayment address. Send stablecoins on Tempo to it from an exchange, any wallet or a family member and it’s applied within seconds, even if auto-pay is off.'],
@@ -73,7 +73,7 @@ export default function Home() {
             <Reveal as="p" className="kc-kicker">01 · Identity · KYC</Reveal>
             <Reveal as="h2" className="kc-h2" id="verify-title">Prove you’re human. Not who you are.</Reveal>
             <Reveal as="p" className="kc-body">
-              Our KYC is a zero-knowledge passport check with Self. Tap your passport’s chip and Self proves it’s genuine and government-issued, that you’re over 18, not on a sanctions list, and one unique person. No documents stored, no face on our servers, one line per human.
+              Our KYC is a zero-knowledge ID check with Self. Verify your passport or ID card in the Self app and it proves the document is genuine and government-issued, that you’re over 18, not on a sanctions list, and one unique person. No documents stored, no face on our servers, one line per human.
             </Reveal>
           </div>
         </section>

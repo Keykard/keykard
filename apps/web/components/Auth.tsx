@@ -295,14 +295,14 @@ export function Auth({ role, lockRole, onSignedIn }: { role: Role; lockRole?: bo
             </div>
           )}
           <div className="opt">
-            <b>{account.passkeys.length > 0 ? 'Lost your passkey too?' : 'Recover with your passport'}</b>
+            <b>{account.passkeys.length > 0 ? 'Lost your passkey too?' : 'Recover with Self'}</b>
             {account.recovery ? (
               <>
-                <span className="small muted">Choose a new password, then scan the passport you verified with. For your safety, access comes back after a short wait.</span>
-                <button className="ghost block" style={{ marginTop: 10 }} disabled={busy !== null} onClick={() => (setPw(''), go('recover'))}>Recover with passport</button>
+                <span className="small muted">Choose a new password, then verify again with Self using the same ID you signed up with. For your safety, access comes back after a short wait.</span>
+                <button className="ghost block" style={{ marginTop: 10 }} disabled={busy !== null} onClick={() => (setPw(''), go('recover'))}>Recover with Self</button>
               </>
             ) : (
-              <span className="small muted">This account can’t be recovered with a passport: it never verified one, or its owner turned account recovery off.</span>
+              <span className="small muted">This account can’t be recovered with Self: it never verified with Self, or its owner turned account recovery off.</span>
             )}
           </div>
         </div>
@@ -328,7 +328,7 @@ export function Auth({ role, lockRole, onSignedIn }: { role: Role; lockRole?: bo
           <h2 style={{ marginTop: 10 }}>Recover @{normUsername(username)}</h2>
           <ol className="steps small">
             <li>Choose a new password.</li>
-            <li>Scan the passport you verified with, in the Self app.</li>
+            <li>Verify with Self, using the same ID you signed up with.</li>
             <li>Wait a short time, then you’re back in: same card, same money.</li>
           </ol>
           <label htmlFor="auth-recpw">New password</label>
@@ -342,7 +342,7 @@ export function Auth({ role, lockRole, onSignedIn }: { role: Role; lockRole?: bo
             </label>
           )}
           <button className="block" style={{ marginTop: 14 }} disabled={busy !== null || strength.score === 0}>
-            {busy === 'recover' ? 'Preparing…' : 'Continue to passport check'}
+            {busy === 'recover' ? 'Preparing…' : 'Continue to Self'}
           </button>
         </form>
       )}
@@ -411,19 +411,19 @@ function RecoveryWait({ selfUrl, password, onSignedIn, onRestart }: { selfUrl: s
       <h2>Recovering @{r.username}</h2>
       <ol className="progress-steps">
         <li className="done">New password set on this device</li>
-        <li className={st?.status === 'awaiting_self' ? 'on' : st && st.status !== 'failed' ? 'done' : ''}>Passport checked with Self</li>
+        <li className={st?.status === 'awaiting_self' ? 'on' : st && st.status !== 'failed' ? 'done' : ''}>Verified with Self</li>
         <li className={st?.status === 'waiting' ? 'on' : st?.status === 'completed' ? 'done' : ''}>Safety wait</li>
         <li className={st?.status === 'completed' ? 'on' : ''}>Signed back in</li>
       </ol>
       {(!st || st.status === 'awaiting_self') && (
         <>
-          <p className="small">Scan your passport in the Self app. This page moves on by itself when it’s done.</p>
+          <p className="small">Verify in the Self app. This page moves on by itself when it’s done.</p>
           {selfUrl && <button className="ghost block" onClick={() => window.open(selfUrl, '_blank', 'noopener')}>Open Self again</button>}
         </>
       )}
       {st?.status === 'waiting' && (
         <p className="notice small">
-          Passport matched. For your safety, access comes back in <b>{left !== null ? fmt(left) : '…'}</b>. If someone else started this, the
+          Your Self ID matches this account. For your safety, access comes back in <b>{left !== null ? fmt(left) : '…'}</b>. If someone else started this, the
           account owner can cancel it from any device they’re still signed in on.
         </p>
       )}
@@ -438,7 +438,7 @@ function RecoveryWait({ selfUrl, password, onSignedIn, onRestart }: { selfUrl: s
       {st?.status === 'failed' && (
         <>
           <p className="error small">
-            {st.error === 'passport_mismatch' ? 'That passport isn’t the one this account was verified with.' : 'The passport check didn’t go through.'}
+            {st.error === 'passport_mismatch' ? 'That isn’t the ID this account was verified with.' : 'The Self verification didn’t go through.'}
           </p>
           <button className="ghost block" onClick={onRestart}>Start again</button>
         </>

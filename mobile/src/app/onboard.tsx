@@ -127,8 +127,8 @@ function VerifyStep({ role, onVerified }: { role: Role; onVerified: () => Promis
       <Text v="eyebrow">Step 2 · Verify</Text>
       <Text v="h2" style={{ marginTop: 8 }}>Verify you’re a real, unique person</Text>
       <Text v="small" style={{ marginTop: 8 }}>
-        This is our KYC, done with Self: tap your passport’s chip with the Self app. It proves three facts with a zero-knowledge proof: you’re over 18, you’re a
-        unique person, and you’re not on a sanctions list. We never see your passport, name or number. One passport = one KEYKARD.
+        This is our KYC, done with Self: verify your passport or ID card in the Self app. It proves three facts with a zero-knowledge proof: you’re over 18, you’re a
+        unique person, and you’re not on a sanctions list. We never see your document, name or number. One person = one KEYKARD.
       </Text>
       {role === 'guarantor' && <Text v="small" style={{ marginTop: 6 }}>As a family backup, your nationality is also shared so we can check the family corridor.</Text>}
       {cfg && !cfg.selfEnabled && <Banner kind="info">Identity verification (Self) isn’t switched on for this server yet.</Banner>}

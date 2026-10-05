@@ -109,8 +109,8 @@ export function Onboard({ role, onReady }: { role: Role; onReady: (me: Me) => vo
           <span className="eyebrow">Step 2 · Verify</span>
           <h2>Verify you’re a real, unique person</h2>
           <p className="small">
-            This is our KYC, done with <b>Self</b>: tap your passport’s chip on your phone. Self proves three facts with a
-            zero-knowledge proof: you’re over 18, you’re a unique person, and you’re not on a sanctions list. <b>We never see your passport, name or number.</b> One passport = one KEYKARD.
+            This is our KYC, done with <b>Self</b>: verify your passport or ID card in the Self app. Self proves three facts with a
+            zero-knowledge proof: you’re over 18, you’re a unique person, and you’re not on a sanctions list. <b>We never see your document, name or number.</b> One passport = one KEYKARD.
           </p>
           {role === 'guarantor' && <p className="small muted">As a guarantor, your nationality is also shared so we can check the family corridor.</p>}
           {cfg && !cfg.selfEnabled && <p className="notice small">Identity verification (Self) is not configured on this server yet.</p>}
