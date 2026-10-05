@@ -9,6 +9,7 @@ import { useSession } from '@/lib/session'
 import { signOut, signerKind, startOver } from '@/lib/wallet'
 import { Button, Link, ListRow, Panel, Row, Screen, Text } from '@/ui/kit'
 import { RolePill, displayName } from '@/ui/Account'
+import { SecureNudge, SecurityPanel } from '@/ui/Security'
 import { color } from '@/ui/theme'
 
 export default function Settings() {
@@ -32,10 +33,13 @@ export default function Settings() {
         </Row>
         <Text v="mono" selectable style={{ marginTop: 6 }}>{me?.user?.wallet}</Text>
         <Text v="small" style={{ marginTop: 10 }}>
-          Signs with: {kind === 'passkey' ? 'passkey (fingerprint / screen lock)' : kind === 'password' ? 'password wallet on this phone' : '—'}
+          This phone signs with: {kind === 'passkey' ? 'your passkey (fingerprint / screen lock)' : kind === 'password' ? 'your password' : '—'}
         </Text>
         <Text v="small">Identity: {me?.identity.verified ? '✓ Verified human (Self)' : 'Not verified yet'}</Text>
       </Panel>
+
+      <SecureNudge username={me?.user?.username} sec={me?.security} onChange={() => void refresh()} />
+      <SecurityPanel username={me?.user?.username} sec={me?.security} onChange={() => void refresh()} />
 
       <Panel>
         <ListRow icon="◆" title="Public credit file" sub="Every line event, on-chain" onPress={() => WebBrowser.openBrowserAsync(`${web}/stats`)} />

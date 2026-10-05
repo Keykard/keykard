@@ -63,6 +63,7 @@ const KEYFRAMES: [string, Partial<Pose>][] = [
   ['merchants', { x: 0.7, y: 0.9, s: 0.5, helix: 1 }],
   ['merchants-out', {}],
   ['demo', { helix: 0 }],
+  ['road', { show: 0, y: 0.7, s: 0.6 }],
   ['final', { x: 0, y: 0.5, rx: 0.3, ry: 0.28, rz: -0.02, s: 0.8, show: 1, limit: 100 }],
 ]
 

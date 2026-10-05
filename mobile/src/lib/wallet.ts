@@ -1,26 +1,31 @@
-import { createClient, http, type Address, type Hex } from 'viem'
+import { createClient, encodeFunctionData, erc20Abi, http, type Address, type Hex } from 'viem'
+import { sendTransactionSync } from 'viem/actions'
 import { privateKeyToAccount } from 'viem/accounts'
 import { Account, Actions, withRelay } from 'viem/tempo'
 import { PublicKey } from 'ox'
 import { KeyAuthorization, SignatureEnvelope } from 'ox/tempo'
-import { encodePayMemo, guaranteeKeyPolicy, mandateKeyPolicy } from '@keycard/sdk'
+import { collateralVaultAbi, encodePayMemo, guaranteeKeyPolicy, mandateKeyPolicy } from '@keycard/sdk'
 import { API_URL, api, getConfig, setToken, type AppConfig } from './api'
 import { KEYS, clearAll, get, set } from './storage'
-import { deviceVault, forgetDeviceKey, unlockDeviceKey, unlockedDeviceKey } from './devicekey'
+import { deviceVault, forgetDeviceKey, lockDeviceKey, unlockDeviceKey, unlockedDeviceKey } from './devicekey'
 import { createPasskey as nativeCreatePasskey, discoverPasskey, signWithPasskey } from './passkey'
 
 /**
- * The KEYKARD wallet: a Tempo account controlled by ONE of
- *   - a passkey (fingerprint / face / screen lock, via Android Credential Manager), or
- *   - a password-locked device key (devicekey.ts).
- * The same signer is the root of the user's own wallet and an ACCESS KEY on their KEYKARD credit account (the card).
- * Every transaction is fee-sponsored by the KEYKARD relay: users never need a gas token.
+ * The KEYKARD wallet is a Tempo account with up to three keys (TIP-1049 admin keys, see the servicer's credentials.ts):
+ *   - a password key: secp256k1, encrypted on the phone with the user's password (devicekey.ts). The wallet's root
+ *     for new accounts; an admin key after a password reset;
+ *   - a passkey (fingerprint / face / screen lock): an admin key, or the root for accounts created passkey-first;
+ *   - KEYKARD's recovery key, used only after a passport re-check and a waiting period (never on the phone).
+ * Every sign-in key is also a card key on the KEYKARD credit account. KEYKARD's relay pays every network fee.
  * Mirrors apps/web/lib/wallet.ts; keep the two in step.
  */
-export type StoredCred = { id: string; publicKey: Hex }
-export type Signer = { kind: 'passkey'; cred: StoredCred } | { kind: 'password'; address: Address; pk: Hex }
+export type StoredCred = { id: string; publicKey: Hex; wallet?: Address; root?: boolean }
+export type Signer =
+  | { kind: 'passkey'; wallet: Address; cred: StoredCred; root: boolean }
+  | { kind: 'password'; wallet: Address; address: Address; pk: Hex; root: boolean }
 
-const rpId = async () => (await getConfig()).passkeyRpId
+export const rpId = async () => (await getConfig()).passkeyRpId
+const lower = (a: string) => a.toLowerCase() as Address
 
 export function storedCredential(): StoredCred | null {
   const s = get(KEYS.passkey)
@@ -30,7 +35,9 @@ export function storedCredential(): StoredCred | null {
     return null
   }
 }
-const storeCredential = (c: StoredCred | null) => set(KEYS.passkey, c ? JSON.stringify(c) : null)
+export const storeCredential = (c: StoredCred | null) => set(KEYS.passkey, c ? JSON.stringify(c) : null)
+export const lastUsername = () => get(KEYS.lastUsername) ?? ''
+export const rememberUsername = (u: string) => set(KEYS.lastUsername, u)
 
 /* ---- password prompt: the UI registers a prompter (a masked modal) ---- */
 let prompter: ((message: string) => Promise<string | null>) | null = null
@@ -39,59 +46,78 @@ export function setPasswordPrompter(fn: typeof prompter) {
 }
 export const askPassword = (message = 'Enter your KEYKARD password') => (prompter ? prompter(message) : Promise.resolve(null))
 
-/** The signer on this phone; unlocks the password wallet if needed (one password entry per app session). */
+/** The password key on this phone as a signer (asks for the password once per app session if it's locked). */
+export async function passwordSigner(reason = 'Enter your KEYKARD password'): Promise<Signer & { kind: 'password' }> {
+  const v = deviceVault()
+  if (!v) throw new Error('No password wallet on this phone. Sign in again.')
+  let k = unlockedDeviceKey()
+  let message = reason
+  while (!k) {
+    const pw = await askPassword(message)
+    if (pw === null) throw new Error('Password entry cancelled.')
+    try {
+      k = await unlockDeviceKey(pw)
+    } catch (e: any) {
+      if (!/Wrong password/.test(e.message)) throw e
+      message = 'Wrong password. Try again'
+    }
+  }
+  const wallet = lower(v.wallet ?? v.address)
+  return { kind: 'password', wallet, address: lower(k.address), pk: k.pk, root: lower(k.address) === wallet }
+}
+
+/** The signer on this phone: the passkey if there is one (one touch), otherwise the password key. */
 export async function getSigner(): Promise<Signer> {
   const cred = storedCredential()
-  if (cred) return { kind: 'passkey', cred }
-  if (deviceVault()) {
-    let k = unlockedDeviceKey()
-    let message = 'Enter your KEYKARD password'
-    while (!k) {
-      const pw = await askPassword(message)
-      if (pw === null) throw new Error('Password entry cancelled.')
-      try {
-        k = await unlockDeviceKey(pw)
-      } catch (e: any) {
-        if (!/Wrong password/.test(e.message)) throw e
-        message = 'Wrong password. Try again'
-      }
-    }
-    return { kind: 'password', address: k.address, pk: k.pk }
-  }
+  if (cred?.wallet) return { kind: 'passkey', wallet: lower(cred.wallet), cred, root: cred.root ?? false }
+  if (deviceVault()) return passwordSigner()
   throw new Error('No KEYKARD wallet on this phone. Sign in again.')
 }
-export const hasLocalWallet = () => Boolean(storedCredential() || deviceVault())
-export const signerKind = (): 'passkey' | 'password' | null => (storedCredential() ? 'passkey' : deviceVault() ? 'password' : null)
+export const hasLocalWallet = () => Boolean(storedCredential()?.wallet || deviceVault())
+export const signerKind = (): 'passkey' | 'password' | null => (storedCredential()?.wallet ? 'passkey' : deviceVault() ? 'password' : null)
 
-/** Sign-up with a passkey: one prompt. The server verifies the registration (challenge, origin, rpId) and signs you in. */
-export async function createPasskey(username: string) {
+/** A passkey registration against a server challenge (verified server-side). Nothing is stored yet. */
+export async function registerPasskey(username: string) {
   const { id: challengeId, challenge } = await api<{ id: string; challenge: Hex }>('/api/auth/register-challenge', { auth: false })
   const p = await nativeCreatePasskey({ username, challenge, rpId: await rpId() })
-  const cred = { id: p.id, publicKey: p.publicKey }
-  await forgetDeviceKey()
-  await storeCredential(cred)
-  return { cred, registration: { challengeId, credential: p.serialized } }
+  return { cred: { id: p.id, publicKey: p.publicKey } as StoredCred, registration: { challengeId, credential: p.serialized } }
 }
 
-/** Password wallet registration: the new device key signs the server challenge. */
+/** A new password key proves possession by signing a server challenge (sign-up, reset, recovery). */
 export async function registrationForDeviceKey(k: { address: Address; pk: Hex }) {
   const { id: challengeId, challenge } = await api<{ id: string; challenge: Hex }>('/api/auth/register-challenge', { auth: false })
   const signature = await privateKeyToAccount(k.pk).signMessage({ message: { raw: challenge } })
-  await storeCredential(null)
   return { challengeId, address: k.address, signature }
 }
 
-/** "Sign in with passkey": pick a KEYKARD passkey on this phone; its public key comes from KEYKARD. */
-export async function restorePasskey(): Promise<StoredCred> {
+/**
+ * Passkey sign-in in ONE prompt when we know the account (username first): sign the server challenge with any of the
+ * account's passkeys. Without a username, the phone's passkey picker chooses (then a second prompt signs in).
+ */
+export async function signInWithPasskey(account?: { wallet: Address; passkeys: { id: string }[] }) {
+  if (account) {
+    const { challenge } = await api<{ challenge: Hex }>('/api/auth/challenge', { body: { wallet: account.wallet }, auth: false })
+    const { metadata, signature, raw } = (await signWithPasskey({ challenge, credentialId: account.passkeys.map((p) => p.id), rpId: await rpId() })) as any
+    const { token } = await api<{ token: string }>('/api/auth/verify', {
+      auth: false,
+      body: { wallet: account.wallet, metadata, signature: { r: signature.r.toString(), s: signature.s.toString() }, credentialId: raw.id },
+    })
+    const k = await api<{ wallet: Address; publicKey: Hex; root: boolean }>(`/api/passkeys/${encodeURIComponent(raw.id)}`, { auth: false })
+    await storeCredential({ id: raw.id, publicKey: k.publicKey, wallet: lower(k.wallet), root: k.root })
+    await setToken(token)
+    return token
+  }
   const id = await discoverPasskey(await rpId())
-  const r = await api<{ publicKey: Hex }>(`/api/passkeys/${encodeURIComponent(id)}`, { auth: false })
-  const c = { id, publicKey: r.publicKey }
+  const r = await api<{ publicKey: Hex; wallet: Address; root: boolean; username: string }>(`/api/passkeys/${encodeURIComponent(id)}`, { auth: false })
+  const c: StoredCred = { id, publicKey: r.publicKey, wallet: lower(r.wallet), root: r.root }
   await storeCredential(c)
-  return c
+  if (r.username) await rememberUsername(r.username)
+  return signIn({ kind: 'passkey', wallet: c.wallet!, cred: c, root: Boolean(c.root) })
 }
 
 export async function signOut() {
   await storeCredential(null)
+  lockDeviceKey()
   await setToken(null)
 }
 
@@ -115,7 +141,11 @@ function passkeyAccount(s: Extract<Signer, { kind: 'passkey' }>, access?: Addres
   } as any)
 }
 
-export const rootAccount = (s: Signer) => (s.kind === 'passkey' ? passkeyAccount(s) : Account.fromSecp256k1(s.pk))
+/** The signer acting on the user's own wallet: as its root, or as an admin key. */
+export const rootAccount = (s: Signer) =>
+  s.kind === 'passkey'
+    ? passkeyAccount(s, s.root ? undefined : s.wallet)
+    : s.root ? Account.fromSecp256k1(s.pk) : Account.fromSecp256k1(s.pk, { access: s.wallet })
 
 /** The signer acting as an access key on another account (the credit account = the card). */
 export const accessKeyAccount = (s: Signer, parent: Address, onSigned?: () => void) =>
@@ -142,18 +172,27 @@ function slowSignerNonce() {
 }
 
 /** Proves control of the wallet to KEYKARD; stores the session token. */
-export async function signIn(s: Signer, wallet: Address) {
-  const { challenge } = await api<{ challenge: Hex }>('/api/auth/challenge', { body: { wallet }, auth: false })
+export async function signIn(s: Signer) {
+  const { challenge } = await api<{ challenge: Hex }>('/api/auth/challenge', { body: { wallet: s.wallet }, auth: false })
   let body: any
   if (s.kind === 'passkey') {
     const { metadata, signature } = await signWithPasskey({ challenge, credentialId: s.cred.id, rpId: await rpId() })
-    body = { wallet, metadata, signature: { r: signature.r.toString(), s: signature.s.toString() } }
+    body = { wallet: s.wallet, metadata, signature: { r: signature.r.toString(), s: signature.s.toString() }, credentialId: s.cred.id }
   } else {
-    body = { wallet, keySignature: await privateKeyToAccount(s.pk).signMessage({ message: { raw: challenge } }) }
+    body = { wallet: s.wallet, keySignature: await privateKeyToAccount(s.pk).signMessage({ message: { raw: challenge } }) }
   }
   const { token } = await api<{ token: string }>('/api/auth/verify', { auth: false, body })
   await setToken(token)
   return token
+}
+
+/** Send keychain calls KEYKARD prepared (add / remove sign-in keys), signed by one of the user's keys, fee sponsored. */
+export async function sendKeyCalls(s: Signer, calls: { to: Address; data: Hex }[]) {
+  if (calls.length === 0) return null
+  const client = await relayClient(rootAccount(s))
+  const r = (await sendTransactionSync(client, { calls, feePayer: true, ...slowSignerNonce() } as any)) as any
+  if (r.status !== 'success') throw new Error('Your wallet didn’t accept the change. Try again.')
+  return r.transactionHash as Hex
 }
 
 export async function tokenBalance(owner: Address): Promise<bigint> {
@@ -163,11 +202,27 @@ export async function tokenBalance(owner: Address): Promise<bigint> {
   return r.amount as bigint
 }
 
-async function signKeyAuthorization(s: Signer, keyId: Address, policy: any): Promise<Hex> {
+/**
+ * A permission for a KEYKARD key on the user's wallet (auto-pay, family backup).
+ *   - ROOT key: one signature over the authorization only; KEYKARD checks and activates it.
+ *   - ADMIN key (a passkey, or a password set after a reset): Tempo requires that admin to also sign the transaction
+ *     carrying it, so the user's key sends it itself (fee sponsored) and KEYKARD verifies it on-chain.
+ */
+async function grant(s: Signer, keyId: Address, policy: any): Promise<{ keyAuthorization?: Hex }> {
+  // the wallet's root password key, already unlocked here, signs with no prompt at all: prefer it over a passkey
+  const k = unlockedDeviceKey()
+  const v = deviceVault()
+  if (!s.root && k && v && lower(v.wallet ?? v.address) === lower(s.wallet) && lower(k.address) === lower(s.wallet)) {
+    s = { kind: 'password', wallet: s.wallet, address: lower(k.address), pk: k.pk, root: true }
+  }
   const cfg = await getConfig()
   const client = await relayClient(rootAccount(s), cfg)
-  const ka = await Actions.accessKey.signAuthorization(client, { accessKey: { address: keyId, type: 'secp256k1' }, ...policy } as any)
-  return KeyAuthorization.serialize(ka as any) as Hex
+  if (s.root) {
+    const ka = await Actions.accessKey.signAuthorization(client, { accessKey: { address: keyId, type: 'secp256k1' }, ...policy } as any)
+    return { keyAuthorization: KeyAuthorization.serialize(ka as any) as Hex }
+  }
+  await Actions.accessKey.authorizeSync(client, { accessKey: { address: keyId, type: 'secp256k1' }, ...policy, feePayer: true, ...slowSignerNonce() } as any)
+  return {}
 }
 
 type MandateTerms = { keyId: Address; cap: string; periodSeconds: number; recipient: Address; expiry: number }
@@ -175,15 +230,13 @@ type MandateTerms = { keyId: Address; cap: string; periodSeconds: number; recipi
 export async function signMandate(s: Signer, lineId: number, m: MandateTerms) {
   const cfg = await getConfig()
   const policy = mandateKeyPolicy({ token: cfg.token, instalment: BigInt(m.cap), period: m.periodSeconds, repayTo: m.recipient, expiry: m.expiry })
-  const keyAuthorization = await signKeyAuthorization(s, m.keyId, policy)
-  return api<{ tx: Hex | null }>(`/api/lines/${lineId}/mandate`, { body: { keyAuthorization } })
+  return api<{ tx: Hex | null }>(`/api/lines/${lineId}/mandate`, { body: await grant(s, m.keyId, policy) })
 }
 
 export async function signGuarantee(s: Signer, inviteId: string, k: { keyId: Address; cap: string; recipient: Address; expiry: number }) {
   const cfg = await getConfig()
   const policy = guaranteeKeyPolicy({ token: cfg.token, cap: BigInt(k.cap), recoveryTo: k.recipient, expiry: k.expiry })
-  const keyAuthorization = await signKeyAuthorization(s, k.keyId, policy)
-  return api<{ tx: Hex | null }>(`/api/guarantee/${inviteId}/key`, { body: { keyAuthorization } })
+  return api<{ tx: Hex | null }>(`/api/guarantee/${inviteId}/key`, { body: await grant(s, k.keyId, policy) })
 }
 
 export async function revokeKey(s: Signer, keyId: Address) {
@@ -214,8 +267,7 @@ export async function renewMandateFlow() {
   const r = await api<{ lineId: number; mandate: MandateTerms }>('/api/lines/mandate/renew', { method: 'POST' })
   const cfg = await getConfig()
   const policy = mandateKeyPolicy({ token: cfg.token, instalment: BigInt(r.mandate.cap), period: r.mandate.periodSeconds, repayTo: r.mandate.recipient, expiry: r.mandate.expiry })
-  const keyAuthorization = await signKeyAuthorization(s, r.mandate.keyId, policy)
-  return api('/api/lines/mandate/renew/confirm', { body: { keyAuthorization } })
+  return api('/api/lines/mandate/renew/confirm', { body: await grant(s, r.mandate.keyId, policy) })
 }
 
 export type CardStep = 'hold' | 'reading' | 'checking' | 'signing' | 'confirming' | 'linking'
@@ -280,4 +332,49 @@ export function explainChainError(e: any): string {
   if (/HTTP request failed|fetch failed|Network request failed|timed out|took too long/i.test(s))
     return 'The network is slow right now. Check your connection; if a payment was sent, it will show up in your activity.'
   return s.slice(0, 220)
+}
+
+/**
+ * Secured line, 1:1: approve + deposit into the KEYKARD CollateralVault in ONE transaction (fee sponsored), then
+ * KEYKARD locks it and raises the limit by the same amount. If the new limit is above the auto-pay cap, the user also
+ * signs a bigger auto-pay permission (still payable only to KEYKARD). Mirrors apps/web/lib/wallet.ts.
+ */
+export async function addCollateral(amount: bigint) {
+  const s = await getSigner()
+  const prep = await api<{ vault: Address; token: Address; amount: string; mandate: MandateTerms | null }>('/api/collateral/prepare', {
+    body: { amount: amount.toString() },
+  })
+  let granted: { keyAuthorization?: Hex } = {}
+  if (prep.mandate) {
+    const cfg = await getConfig()
+    const m = prep.mandate
+    granted = await grant(s, m.keyId, mandateKeyPolicy({ token: cfg.token, instalment: BigInt(m.cap), period: m.periodSeconds, repayTo: m.recipient, expiry: m.expiry }))
+  }
+  const client = await relayClient(rootAccount(s))
+  const r = (await sendTransactionSync(client, {
+    calls: [
+      { to: prep.token, data: encodeFunctionData({ abi: erc20Abi, functionName: 'approve', args: [prep.vault, amount] }) },
+      { to: prep.vault, data: encodeFunctionData({ abi: collateralVaultAbi, functionName: 'deposit', args: [amount] }) },
+    ],
+    feePayer: true,
+    ...slowSignerNonce(),
+  } as any)) as any
+  if (r.status !== 'success') throw new Error('The deposit did not go through.')
+  return api('/api/collateral/confirm', { body: { amount: amount.toString(), ...granted } })
+}
+
+/** Lower the secured limit, then withdraw that collateral from the vault back to the wallet. */
+export async function withdrawCollateral(amount: bigint, alreadyReleased = false) {
+  const s = await getSigner()
+  const cfg = await getConfig()
+  if (!alreadyReleased) await api('/api/collateral/release', { body: { amount: amount.toString() } })
+  const client = await relayClient(rootAccount(s), cfg)
+  const r = (await sendTransactionSync(client, {
+    to: cfg.collateralVault!,
+    data: encodeFunctionData({ abi: collateralVaultAbi, functionName: 'withdraw', args: [amount] }),
+    feePayer: true,
+    ...slowSignerNonce(),
+  } as any)) as any
+  if (r.status !== 'success') throw new Error('The withdrawal did not go through.')
+  return r.transactionHash as Hex
 }

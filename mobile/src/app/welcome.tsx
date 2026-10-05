@@ -27,7 +27,7 @@ export default function Welcome() {
           <Text v="eyebrow">Stablecoin credit · on Tempo</Text>
           <Text v="display" style={{ marginTop: 12 }}>Credit without{'\n'}the bank.</Text>
           <Text style={{ marginTop: 14 }}>
-            A credit card for people no bank will score. No collateral. No fees. Every rule enforced by the blockchain, not by us.
+            A credit card for people no bank will score. No collateral needed. Free if you pay on time. Every rule enforced by the blockchain, not by us.
           </Text>
         </View>
 

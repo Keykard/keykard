@@ -15,6 +15,7 @@ import { chargePhysicalCard, explainChainError } from '@/lib/wallet'
 import { Banner, Button, Chip, Field, ListRow, Panel, Row, Text } from '@/ui/kit'
 import { KeyMark } from '@/ui/KeykardCard'
 import { CardFlowSheet, type FlowState } from '@/ui/CardFlowSheet'
+import { SecureNudge } from '@/ui/Security'
 import { color, font } from '@/ui/theme'
 
 type Dash = {
@@ -100,6 +101,7 @@ function Register({ onDone }: { onDone: () => void }) {
 }
 
 function Till({ dash, explorer, web, onPaid }: { dash: Dash; explorer?: string; web: string; onPaid: () => void }) {
+  const session = useSession()
   const payLink = `${web}/card?pay=${dash.merchant.code}`
   useReaderGuard()
   const [amount, setAmount] = useState('')
@@ -137,6 +139,7 @@ function Till({ dash, explorer, web, onPaid }: { dash: Dash; explorer?: string; 
   return (
     <>
       <Text v="h1" style={{ marginTop: 22 }}>{dash.merchant.label}</Text>
+      <SecureNudge username={session.me?.user?.username} sec={session.me?.security} onChange={() => void session.refresh()} />
       <Row style={{ marginTop: 14 }}>
         <Chip label="Received" value={usd(dash.settledTotal)} />
         <Chip label="Payments" value={String(dash.settledCount)} />

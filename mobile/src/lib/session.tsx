@@ -21,11 +21,19 @@ export type Line = {
   guarantorWallet: string | null
   guaranteed?: string
   repayKeyId?: Address
+  feesDue?: string
+  feesPaid?: string
+  totalDue?: string
+  repayAccount?: Address | null
+  secured?: string
+  unsecuredLimit?: string
 }
 export type Me = {
   user: { wallet: Address; role: Role; username?: string | null } | null
   identity: { verified: boolean; attestationTx: string | null; selfStatus: string | null }
   line: Line | null
+  collateral?: { vault: string; deposited: string; locked: string; available: string; max: string } | null
+  security?: import('./account').Security | null
   guaranteeing: any[]
 }
 

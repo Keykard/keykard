@@ -95,8 +95,11 @@ function getFn(opts: any) {
   }))
 }
 
-/** WebAuthn assertion over `challenge` with a known credential. Same return shape as ox's WebAuthnP256.sign. */
-export async function signWithPasskey(p: { challenge: Hex.Hex; credentialId: string; rpId: string }) {
+/**
+ * WebAuthn assertion over `challenge` with a known credential (or any of several: the phone shows the ones it has).
+ * Same return shape as ox's WebAuthnP256.sign; `raw.id` says which passkey signed.
+ */
+export async function signWithPasskey(p: { challenge: Hex.Hex; credentialId: string | string[]; rpId: string }) {
   try {
     return await Authentication.sign({ challenge: p.challenge, credentialId: p.credentialId, rpId: p.rpId, userVerification: 'required', getFn } as any)
   } catch (e: any) {
@@ -109,6 +112,15 @@ export async function discoverPasskey(rpId: string): Promise<string> {
   try {
     const r: any = await getFn({ publicKey: { challenge: Bytes.random(32), rpId, userVerification: 'required' } })
     return r.id as string
+  } catch (e) {
+    throw friendlyPasskeyError(e)
+  }
+}
+
+/** App lock: a local fingerprint / face check with one of this account's passkeys (nothing is sent anywhere). */
+export async function confirmWithPasskey(rpId: string, credentialIds: string[]) {
+  try {
+    await getFn({ publicKey: { challenge: Bytes.random(32), rpId, userVerification: 'required', allowCredentials: credentialIds.map((id) => ({ id: fromB64u(id) })) } })
   } catch (e) {
     throw friendlyPasskeyError(e)
   }

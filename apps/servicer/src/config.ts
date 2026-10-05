@@ -49,6 +49,11 @@ const Env = z.object({
   TIERS: z.string().default('20000000,50000000,100000000'),
   // physical card (NFC chip) per-period limit, contactless-style, in token base units ($10)
   CARD_LIMIT: z.coerce.bigint().default(10_000_000n),
+  // secured lines: most collateral one borrower can lock (1:1 extra limit), in token base units ($500)
+  MAX_SECURED: z.coerce.bigint().default(500_000_000n),
+  // account recovery (lost password AND passkey): waiting period after the passport check. Default 5 min on
+  // testnet, 48 h on mainnet (see recovery.ts)
+  RECOVERY_DELAY_SECONDS: z.coerce.number().int().positive().optional(),
   ON_TIME_TO_UPGRADE: z.coerce.number().int().positive().default(2),
   // Comma-separated ISO-3 residence countries refused at signup. Empty during the hackathon pilot (team decision
   // 2026-09-29). Set to 'IND' before any public launch unless a legal opinion says otherwise.
@@ -69,6 +74,8 @@ const deployed = existsSync(deploymentsFile) ? JSON.parse(readFileSync(deploymen
 export const net: Network = getNetwork(env.TEMPO_NETWORK, {
   registry: deployed.registry as Address | undefined,
   lineBook: deployed.lineBook as Address | undefined,
+  creditTerms: deployed.creditTerms as Address | undefined,
+  collateralVault: deployed.collateralVault as Address | undefined,
   deployBlock: deployed.deployBlock ? BigInt(deployed.deployBlock) : undefined,
 })
 if (!net.registry || !net.lineBook) throw new Error(`no deployment found at ${deploymentsFile}`)

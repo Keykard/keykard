@@ -12,7 +12,7 @@ import { sql } from './db'
  *
  * Policy (we only pay fees for KEYKARD activity):
  *   - sender must be a KEYKARD user wallet, credit account or guarantor wallet
- *   - every call must target the line token or the AccountKeychain precompile
+ *   - every call must target the line token, the AccountKeychain precompile or the CollateralVault
  *     (an empty call list is allowed only when the tx carries a keyAuthorization)
  *   - per-sender daily cap
  */
@@ -41,7 +41,8 @@ export async function checkRelayPolicy(serialized: `0x${string}`) {
     // viem attaches a no-op call (to 0x0, no data, no value) when a tx only carries a keyAuthorization
     const noop = /^0x0{40}$/.test(to) && (!c.data || c.data === '0x') && !c.value
     if (noop && tx.keyAuthorization) continue
-    if (to !== lower(net.token) && to !== lower(ACCOUNT_KEYCHAIN)) throw new RelayPolicyError(`call target not sponsored: ${to}`)
+    const vault = net.collateralVault ? lower(net.collateralVault) : null
+    if (to !== lower(net.token) && to !== lower(ACCOUNT_KEYCHAIN) && to !== vault) throw new RelayPolicyError(`call target not sponsored: ${to}`)
   }
   const day = new Date().toISOString().slice(0, 10)
   const c = counts.get(from)

@@ -4,14 +4,14 @@ import { router, useLocalSearchParams } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import type { Address } from 'viem'
 import { api, setToken } from '@/lib/api'
-import { createDeviceKey, deriveAuthProof, deviceVault } from '@/lib/devicekey'
-import { PasskeyCancelled, passkeysSupported } from '@/lib/passkey'
-import { useSession, type Role } from '@/lib/session'
-import { createPasskey, explainChainError, getSigner, registrationForDeviceKey, signIn, signMandate } from '@/lib/wallet'
+import { PasskeyCancelled } from '@/lib/passkey'
+import { homeFor, useSession, type Role } from '@/lib/session'
+import { resetTo } from '@/lib/nav'
+import { explainChainError, getSigner, signMandate } from '@/lib/wallet'
+import { AuthFlow } from '@/ui/AuthFlow'
 import { duration, short, usd } from '@/lib/format'
 import { selfStatusMessage } from '@keycard/sdk'
-import { Banner, Button, Check, Field, Link, Panel, Row, Screen, Segmented, Stepper, Text } from '@/ui/kit'
-import { CountryPicker } from '@/ui/CountryPicker'
+import { Banner, Button, Check, Link, Panel, Row, Screen, Stepper, Text } from '@/ui/kit'
 import { KeykardCard } from '@/ui/KeykardCard'
 import { WrongAccount, switchAccount } from '@/ui/Account'
 import { color } from '@/ui/theme'
@@ -22,7 +22,6 @@ const STEPS: Record<Role, string[]> = {
   guarantor: ['Account', 'Verify', 'Guarantee'],
 }
 const TITLE: Record<Role, string> = { borrower: 'Get your KEYKARD', merchant: 'Accept KEYKARD', guarantor: 'Back someone you trust' }
-const USERNAME_RE = /^[a-z0-9._-]{3,30}$/
 
 type Prepared = {
   lineId: number
@@ -41,6 +40,11 @@ export default function Onboard() {
   const [cardReady, setCardReady] = useState(false)
   const step = cardReady ? 3 : !signedIn || !me?.user ? 0 : !verified ? 1 : 2
 
+  // one sign-in for everyone: a cardholder who signed in on the merchant path (or the reverse) goes to their own home
+  useEffect(() => {
+    if (me?.user && wrongRole && role !== 'guarantor' && me.user.role !== 'guarantor') resetTo(homeFor(me) as any)
+  }, [me, wrongRole, role])
+
   // once verified, non-borrowers continue to their own screen
   useEffect(() => {
     if (!me?.user || wrongRole || !verified) return
@@ -56,12 +60,13 @@ export default function Onboard() {
         {signedIn && <Link title="Switch account" onPress={() => !cardReady && switchAccount()} />}
       </Row>
       <Text v="h1" style={{ marginTop: 18 }}>{TITLE[role]}</Text>
-      <Text style={{ marginTop: 6 }}>A minute, no documents stored, no fees.</Text>
-      <Stepper steps={STEPS[role]} at={step} />
+      <Text style={{ marginTop: 6 }}>A minute. No documents stored. Free if you pay on time.</Text>
+      {/* the sign-in screen has its own heading; the steps only matter once you're in */}
+      {step > 0 && <Stepper steps={STEPS[role]} at={step} />}
       {me && wrongRole ? (
         <WrongAccount me={me} want={role === 'borrower' ? 'cardholder' : role === 'merchant' ? 'merchant' : 'family backup'} here={TITLE[role]} />
       ) : step === 0 ? (
-        <AccountStep role={role} onDone={refresh} />
+        <AuthFlow role={role} lockRole={role === 'guarantor'} onDone={refresh} />
       ) : step === 1 ? (
         <VerifyStep role={role} onVerified={refresh} />
       ) : role === 'borrower' ? (
@@ -71,144 +76,6 @@ export default function Onboard() {
       )}
       {cfg?.network === 'testnet' && <Text v="small" style={{ textAlign: 'center', marginTop: 20, color: color.text3 }}>Tempo testnet · test dollars only</Text>}
     </Screen>
-  )
-}
-
-/* ---------------- Step 1: account ---------------- */
-function AccountStep({ role, onDone }: { role: Role; onDone: () => Promise<unknown> }) {
-  const { cfg } = useSession()
-  const canPasskey = passkeysSupported()
-  const [method, setMethod] = useState<'passkey' | 'password'>(canPasskey ? 'passkey' : 'password')
-  const [username, setUsername] = useState('')
-  const [nameState, setNameState] = useState<'idle' | 'checking' | 'free' | 'taken' | 'invalid'>('idle')
-  const [pw, setPw] = useState('')
-  const [pw2, setPw2] = useState('')
-  const [country, setCountry] = useState('')
-  const [confirmed, setConfirmed] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [stage, setStage] = useState<string | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-  const seq = useRef(0)
-
-  // live username check
-  useEffect(() => {
-    const u = username.trim().toLowerCase()
-    if (!u) return setNameState('idle')
-    if (!USERNAME_RE.test(u)) return setNameState('invalid')
-    setNameState('checking')
-    const n = ++seq.current
-    const t = setTimeout(() => {
-      api<{ available: boolean }>(`/api/username/${encodeURIComponent(u)}`, { auth: false })
-        .then((r) => n === seq.current && setNameState(r.available ? 'free' : 'taken'))
-        .catch(() => n === seq.current && setNameState('idle'))
-    }, 350)
-    return () => clearTimeout(t)
-  }, [username])
-
-  const excluded = !!cfg?.excludedCountries.includes(country)
-  const pwOk = method === 'passkey' || (pw.length >= 10 && pw === pw2)
-  const ready = nameState === 'free' && !!country && !excluded && confirmed && pwOk && !busy
-
-  const create = async () => {
-    setErr(null)
-    setBusy(true)
-    try {
-      const uname = username.trim().toLowerCase()
-      if (method === 'password') {
-        setStage('Securing your wallet on this phone…')
-        const k = await createDeviceKey(pw)
-        const keyRegistration = await registrationForDeviceKey(k)
-        const authProof = await deriveAuthProof(uname, pw)
-        setStage('Creating your account…')
-        const r = await api<{ wallet: Address; token?: string }>('/api/users', {
-          auth: false,
-          body: { role, username: uname, keyRegistration, backup: { username: uname, authProof, vault: k.vault }, residenceCountry: country, residenceConfirmed: true },
-        })
-        if (r.token) await setToken(r.token)
-        else await signIn({ kind: 'password', address: k.address, pk: k.pk }, r.wallet)
-      } else {
-        setStage('Confirm with your fingerprint or screen lock…')
-        const { cred, registration } = await createPasskey(uname)
-        setStage('Creating your account…')
-        const r = await api<{ wallet: Address; token?: string }>('/api/users', {
-          auth: false,
-          body: { role, username: uname, registration, residenceCountry: country, residenceConfirmed: true },
-        })
-        if (r.token) await setToken(r.token)
-        else await signIn({ kind: 'passkey', cred }, r.wallet)
-      }
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
-      await onDone()
-    } catch (e: any) {
-      if (!(e instanceof PasskeyCancelled)) setErr(e.message ?? String(e))
-    } finally {
-      setBusy(false)
-      setStage(null)
-    }
-  }
-
-  return (
-    <Panel>
-      <Text v="eyebrow">Step 1 · Account</Text>
-      {deviceVault() && (
-        <Banner kind="info">
-          <Text v="small" style={{ color: color.text }}>
-            This phone already has a password wallet. <Link title="Sign in instead" onPress={() => router.push('/signin')} />
-          </Text>
-        </Banner>
-      )}
-      <Field
-        testID="onboard-username"
-        label="Username"
-        autoCapitalize="none"
-        autoCorrect={false}
-        autoComplete="username"
-        placeholder="e.g. maria.santos"
-        value={username}
-        onChangeText={(t) => setUsername(t.replace(/\s/g, ''))}
-        error={nameState === 'taken' ? 'That username is taken.' : nameState === 'invalid' ? '3–30 characters: letters, numbers, . _ -' : null}
-        hint={nameState === 'free' ? '✓ Available' : 'Shown on your KEYKARD and in your passkey list.'}
-      />
-      <Segmented
-        value={method}
-        onChange={setMethod}
-        options={[{ value: 'passkey', label: 'Fingerprint' }, { value: 'password', label: 'Password' }]}
-      />
-      {method === 'passkey' ? (
-        <Text v="small" style={{ marginTop: 10 }}>
-          {canPasskey
-            ? 'Recommended. Your account is a passkey: fingerprint, face or screen lock. No seed phrase, and it works on the KEYKARD website too.'
-            : 'Passkeys need Android 9+ with Google Play services. Use a password account on this phone.'}
-        </Text>
-      ) : (
-        <>
-          <Text v="small" style={{ marginTop: 10 }}>
-            A wallet key is created on this phone and locked with your password, which never leaves the device. You can sign in with it on any device.
-          </Text>
-          <Field testID="onboard-password" label="Password (at least 10 characters)" secureTextEntry autoCapitalize="none" autoComplete="new-password" value={pw} onChangeText={setPw}
-            error={pw.length > 0 && pw.length < 10 ? 'At least 10 characters.' : null} />
-          <Field testID="onboard-password2" label="Repeat password" secureTextEntry autoCapitalize="none" autoComplete="new-password" value={pw2} onChangeText={setPw2}
-            error={pw2.length > 0 && pw2 !== pw ? 'Passwords don’t match.' : null} />
-        </>
-      )}
-      <CountryPicker value={country} onChange={setCountry} excluded={cfg?.excludedCountries ?? []} />
-      {excluded && <Banner kind="error">KEYKARD isn’t available to residents of this country yet.</Banner>}
-      <Check testID="onboard-residence" checked={confirmed} onChange={setConfirmed}>
-        I confirm this is my country of residence, and I will tell KEYKARD if it changes.
-      </Check>
-      {err && <Banner kind="error">{err}</Banner>}
-      <Button
-        testID="onboard-create"
-        title={busy ? stage ?? 'Working…' : method === 'passkey' ? 'Create passkey account' : 'Create password account'}
-        busy={busy}
-        disabled={!ready || (method === 'passkey' && !canPasskey)}
-        style={{ marginTop: 18 }}
-        onPress={create}
-      />
-      <View style={{ alignItems: 'center', marginTop: 14 }}>
-        <Text v="small">Already have one? <Link title="Sign in" onPress={() => router.push('/signin')} /></Text>
-      </View>
-    </Panel>
   )
 }
 
@@ -260,7 +127,7 @@ function VerifyStep({ role, onVerified }: { role: Role; onVerified: () => Promis
       <Text v="eyebrow">Step 2 · Verify</Text>
       <Text v="h2" style={{ marginTop: 8 }}>Verify you’re a real, unique person</Text>
       <Text v="small" style={{ marginTop: 8 }}>
-        KEYKARD uses Self: tap your passport’s chip with the Self app. It proves three facts with a zero-knowledge proof: you’re over 18, you’re a
+        This is our KYC, done with Self: tap your passport’s chip with the Self app. It proves three facts with a zero-knowledge proof: you’re over 18, you’re a
         unique person, and you’re not on a sanctions list. We never see your passport, name or number. One passport = one KEYKARD.
       </Text>
       {role === 'guarantor' && <Text v="small" style={{ marginTop: 6 }}>As a family backup, your nationality is also shared so we can check the family corridor.</Text>}

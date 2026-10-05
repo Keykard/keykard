@@ -5,9 +5,14 @@ import { lineBookWrite, registryWrite, remainingLimit, tokenBalance, treasury, g
 import { audit, sql } from './db'
 import { applyLimits, freezeLine, moveOnce, setSpendLimit } from './lines'
 import { open } from './vault'
+import { accruePenalties, allocate, feesPaid, onMissed, stopPenaltyClock } from './charges'
+import { seizeCollateralOnDefault } from './collateral'
+import { applyExternalRepayments } from './repay'
+import { withLine } from './linelock'
+import { completeRecoveries } from './recovery'
 
 /**
- * Line economics (pilot, 0% fee):
+ * Line economics (0% if you pay on time; a missed bill is priced by CreditTerms, see charges.ts):
  *   - The credit account is funded to `credit_limit`. Its balance IS the available credit, so exposure
  *     can never exceed the limit regardless of the spend key's periodic allowance.
  *   - owed = credit_limit - balance(creditAccount)
@@ -48,16 +53,19 @@ export async function topUp(row: any, amount: bigint, seq: number) {
   }
 }
 
+/** Tiers apply to the unsecured part of the line; collateral-backed limit sits on top of it. */
 async function maybeUpgrade(row: any, onTimeCount: number) {
   if (onTimeCount === 0 || onTimeCount % env.ON_TIME_TO_UPGRADE !== 0) return
-  const current = BigInt(row.credit_limit)
+  const secured = BigInt(row.secured ?? 0)
+  const current = BigInt(row.credit_limit) - secured
   const next = tiers.find((t) => t > current)
-  if (!next || next > BigInt(row.mandate_cap)) return
-  await topUp(row, next - current, 500_000 + onTimeCount)
-  await setSpendLimit(row, next)
-  await lineBookWrite('recordLimitChange', [BigInt(row.linebook_id), next])
-  await sql`UPDATE lines SET credit_limit=${next.toString()}, updated_at=now() WHERE id=${row.id}`
-  await audit({ lineId: row.id, actor: 'servicer', action: 'line.limit_raised', detail: { from: current, to: next } })
+  if (!next || next + secured > BigInt(row.mandate_cap)) return
+  const newLimit = next + secured
+  await sql`UPDATE lines SET credit_limit=${newLimit.toString()}, updated_at=now() WHERE id=${row.id}`
+  await topUp({ ...row, credit_limit: newLimit.toString() }, next - current, 500_000 + onTimeCount)
+  await setSpendLimit(row, newLimit)
+  await lineBookWrite('recordLimitChange', [BigInt(row.linebook_id), newLimit])
+  await audit({ lineId: row.id, actor: 'servicer', action: 'line.limit_raised', detail: { from: current + secured, to: newLimit } })
 }
 
 const owedOf = async (row: any) => {
@@ -72,14 +80,22 @@ async function runStatement(row: any) {
   const seq = row.statement_seq + 1
   const nextDue = new Date(new Date(row.next_due).getTime() + row.period_seconds * 1000)
 
-  if (owed === 0n) {
+  const fees = BigInt(row.fees_due ?? 0)
+  if (owed === 0n && fees === 0n) {
     await sql`UPDATE lines SET statement_seq=${seq}, amount_due=0, next_due=${nextDue}, updated_at=now() WHERE id=${row.id}`
     return
   }
-  const r = await repayFromBorrower(row, owed, seq)
-  if (r.pulled > 0n) await topUp(row, r.pulled, seq)
-  const remaining = owed - r.pulled
+  const r = await repayFromBorrower(row, owed + fees, seq)
+  const paid = allocate(r.pulled, owed, fees)
+  if (paid.principal > 0n) await topUp(row, paid.principal, seq)
+  if (paid.fees > 0n) await feesPaid(row, paid.fees, r.txHash ?? null)
+  const remaining = owed - paid.principal
 
+  if (owed === 0n) {
+    // only earlier fees were outstanding: collected what we could, nothing new was missed
+    await sql`UPDATE lines SET statement_seq=${seq}, amount_due=0, next_due=${nextDue}, updated_at=now() WHERE id=${row.id}`
+    return
+  }
   if (remaining === 0n) {
     const onTime = row.on_time_count + 1
     await lineBookWrite('recordRepayment', [BigInt(row.linebook_id), r.txHash!, r.pulled, true])
@@ -98,6 +114,7 @@ async function runStatement(row: any) {
   const [fresh] = await sql`SELECT * FROM lines WHERE id=${row.id}`
   await applyLimits(fresh, 'blocked') // no new spending while overdue (phone AND physical card)
   await audit({ lineId: row.id, actor: 'servicer', action: 'repayment.short', detail: { owed, pulled: r.pulled, remaining, reason: r.reason } })
+  await onMissed(fresh, remaining)
 }
 
 /** Statement date reached for a FROZEN line: a frozen line still owes what it spent. */
@@ -109,12 +126,15 @@ async function runFrozenStatement(row: any) {
     return
   }
   const seq = row.statement_seq + 1
-  const r = await repayFromBorrower(row, owed, seq) // works if the mandate was renewed while frozen
+  const fees = BigInt(row.fees_due ?? 0)
+  const r = await repayFromBorrower(row, owed + fees, seq) // works if the mandate was renewed while frozen
+  const paid = allocate(r.pulled, owed, fees)
   if (r.pulled > 0n) {
-    await topUp(row, r.pulled, seq)
+    if (paid.principal > 0n) await topUp(row, paid.principal, seq)
+    if (paid.fees > 0n) await feesPaid(row, paid.fees, r.txHash ?? null)
     await lineBookWrite('recordRepayment', [BigInt(row.linebook_id), r.txHash!, r.pulled, false])
   }
-  const remaining = owed - r.pulled
+  const remaining = owed - paid.principal
   if (remaining === 0n) {
     await sql`UPDATE lines SET statement_seq=${seq}, amount_due=0, next_due=${nextDue}, updated_at=now() WHERE id=${row.id}`
     return
@@ -125,6 +145,8 @@ async function runFrozenStatement(row: any) {
     UPDATE lines SET statement_seq=${seq}, amount_due=${remaining.toString()}, grace_until=${graceUntil},
       missed_count=missed_count+1, next_due=${nextDue}, updated_at=now() WHERE id=${row.id}`
   await audit({ lineId: row.id, actor: 'servicer', action: 'repayment.short', detail: { owed, pulled: r.pulled, remaining, reason: r.reason, frozen: true } })
+  const [fresh] = await sql`SELECT * FROM lines WHERE id=${row.id}`
+  await onMissed(fresh, remaining)
 }
 
 /** Default: record it, block every key, revoke the identity attestation (chain AND db), sweep unused credit. */
@@ -144,17 +166,22 @@ export async function defaultLine(fresh: any, unpaid: bigint) {
   }
   await sql`UPDATE lines SET status='defaulted', amount_due=${unpaid.toString()}, grace_until=NULL, updated_at=now() WHERE id=${fresh.id}`
   await audit({ lineId: fresh.id, actor: 'servicer', action: 'line.defaulted', detail: { unpaid } })
+  // a secured line: the vault releases locked collateral to cover what's owed (only possible once LineBook says Defaulted)
+  await seizeCollateralOnDefault(fresh.id).catch((e) => console.error('[default] collateral seize failed', fresh.id, e?.shortMessage ?? e?.message ?? e))
 }
 
 /** Line overdue (status 'grace', or 'frozen' with an amount due): retry borrower; after grace, guarantor; else default. */
 async function runGrace(row: any) {
   let due = BigInt(row.amount_due)
+  const fees = BigInt(row.fees_due ?? 0)
   const seq = 10_000 + row.statement_seq * 100 + Math.floor((Date.now() / 1000) % 100) // unique retry memos
-  const r = await repayFromBorrower(row, due, seq)
+  const r = await repayFromBorrower(row, due + fees, seq)
   if (r.pulled > 0n) {
-    await topUp(row, r.pulled, seq)
+    const paid = allocate(r.pulled, due, fees)
+    if (paid.principal > 0n) await topUp(row, paid.principal, seq)
+    if (paid.fees > 0n) await feesPaid(row, paid.fees, r.txHash ?? null)
     await lineBookWrite('recordRepayment', [BigInt(row.linebook_id), r.txHash!, r.pulled, false])
-    due -= r.pulled
+    due -= paid.principal
     await sql`UPDATE lines SET amount_due=${due.toString()}, updated_at=now() WHERE id=${row.id}`
   }
   if (due === 0n) {
@@ -163,7 +190,7 @@ async function runGrace(row: any) {
   }
   if (new Date(row.grace_until) > now()) return
 
-  // grace over: guarantor
+  // grace over: guarantor (covers the borrowed amount only, never fees)
   if (row.guarantor_wallet && row.guar_key_id && BigInt(row.guaranteed) > 0n) {
     const g = row.guarantor_wallet as Address
     const [bal, lim] = await Promise.all([tokenBalance(g), remainingLimit(g, row.guar_key_id)])
@@ -193,6 +220,7 @@ async function runGrace(row: any) {
 
 /** Overdue amount fully repaid: grace -> active (spending restored); frozen -> stays frozen, overdue cleared. */
 export async function cureOverdue(row: any) {
+  await stopPenaltyClock(row.id)
   const [fresh] = await sql`SELECT * FROM lines WHERE id=${row.id}`
   if (fresh.status === 'grace') {
     await sql`UPDATE lines SET status='active', amount_due=0, grace_until=NULL, updated_at=now() WHERE id=${row.id}`
@@ -209,29 +237,44 @@ export async function tick() {
   if (running) return
   running = true
   try {
-    const due = await sql`SELECT * FROM lines WHERE status='active' AND next_due <= now() ORDER BY next_due LIMIT 50`
-    for (const row of due) {
+    const due = await sql`SELECT id FROM lines WHERE status='active' AND next_due <= now() ORDER BY next_due LIMIT 50`
+    for (const { id } of due) {
+      const row = { id }
       try {
-        await runStatement(row)
+        await withLine(id, async () => {
+          const [fresh] = await sql`SELECT * FROM lines WHERE id=${id}`
+          if (fresh?.status === 'active' && new Date(fresh.next_due) <= new Date()) await runStatement(fresh)
+        })
       } catch (e) {
         console.error('statement failed', row.id, e)
         await audit({ lineId: row.id, actor: 'servicer', action: 'statement.error', detail: { error: String(e) } })
       }
     }
-    const frozenDue = await sql`SELECT * FROM lines WHERE status='frozen' AND next_due <= now() ORDER BY next_due LIMIT 50`
-    for (const row of frozenDue) {
+    const frozenDue = await sql`SELECT id FROM lines WHERE status='frozen' AND next_due <= now() ORDER BY next_due LIMIT 50`
+    for (const { id } of frozenDue) {
       try {
-        await runFrozenStatement(row)
+        await withLine(id, async () => {
+          const [fresh] = await sql`SELECT * FROM lines WHERE id=${id}`
+          if (fresh?.status === 'frozen' && new Date(fresh.next_due) <= new Date()) await runFrozenStatement(fresh)
+        })
       } catch (e) {
-        console.error('frozen statement failed', row.id, e)
+        console.error('frozen statement failed', id, e)
       }
     }
+    await applyExternalRepayments().catch((e) => console.error('external repayments failed', e))
+    await accruePenalties().catch((e) => console.error('penalties failed', e))
+    await completeRecoveries().catch((e) => console.error('recoveries failed', e))
     const overdue = await sql`
-      SELECT * FROM lines WHERE status='grace' OR (status='frozen' AND grace_until IS NOT NULL AND amount_due > 0)
+      SELECT id FROM lines WHERE status='grace' OR (status='frozen' AND grace_until IS NOT NULL AND amount_due > 0)
       ORDER BY grace_until LIMIT 50`
-    for (const row of overdue) {
+    for (const { id } of overdue) {
+      const row = { id }
       try {
-        await runGrace(row)
+        await withLine(id, async () => {
+          const [fresh] = await sql`SELECT * FROM lines WHERE id=${id}`
+          const stillOverdue = fresh && (fresh.status === 'grace' || (fresh.status === 'frozen' && fresh.grace_until && BigInt(fresh.amount_due) > 0n))
+          if (stillOverdue) await runGrace(fresh)
+        })
       } catch (e) {
         console.error('grace failed', row.id, e)
         await audit({ lineId: row.id, actor: 'servicer', action: 'grace.error', detail: { error: String(e) } })

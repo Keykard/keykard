@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import { verifyMessage, type Address, type Hex } from 'viem'
+import { recoverMessageAddress, verifyMessage, type Address, type Hex } from 'viem'
 import { PublicKey, WebAuthnP256 } from 'ox'
 import { Credential, Registration } from 'ox/webauthn'
 import { Account } from 'viem/tempo'
@@ -24,34 +24,45 @@ export function issueChallenge(wallet: Address): Hex {
   return challenge
 }
 
+/**
+ * Sign-in: the client signs a server nonce with ANY active key on the account: its password key (root or admin,
+ * EIP-191) or one of its passkeys (WebAuthn). Retired and revoked keys can't sign in.
+ */
 export async function verifyAssertion(p: {
   wallet: Address
   metadata?: any
   signature?: { r: string | bigint; s: string | bigint }
   keySignature?: Hex
+  credentialId?: string
 }): Promise<string> {
-  const c = challenges.get(p.wallet.toLowerCase())
+  const wallet = p.wallet.toLowerCase() as Address
+  const c = challenges.get(wallet)
   if (!c || c.exp < Date.now()) throw new Error('challenge expired')
-  const [u] = await sql`SELECT passkey_public_key, key_type FROM users WHERE wallet = ${p.wallet.toLowerCase()}`
-  if (!u) throw new Error('unknown wallet')
-  if (u.key_type === 'secp256k1') {
-    // password wallet: EIP-191 signature of the challenge by the wallet key
-    if (!p.keySignature) throw new Error('signature required')
-    const ok = await verifyMessage({ address: p.wallet, message: { raw: c.challenge }, signature: p.keySignature })
-    if (!ok) throw new Error('bad signature')
-    challenges.delete(p.wallet.toLowerCase())
-    return mintSession(p.wallet)
+  const creds = await sql`SELECT * FROM credentials WHERE wallet=${wallet} AND status='active' AND kind IN ('password','passkey')`
+  if (creds.length === 0) throw new Error('unknown wallet')
+  if (p.keySignature) {
+    const signer = (await recoverMessageAddress({ message: { raw: c.challenge }, signature: p.keySignature })).toLowerCase()
+    if (!creds.some((k) => k.kind === 'password' && k.key_id.toLowerCase() === signer)) throw new Error('bad signature')
+    challenges.delete(wallet)
+    return mintSession(wallet)
   }
   if (!p.metadata || !p.signature) throw new Error('passkey assertion required')
-  const ok = WebAuthnP256.verify({
-    metadata: p.metadata,
-    challenge: c.challenge,
-    publicKey: PublicKey.fromHex(u.passkey_public_key as Hex),
-    signature: { r: BigInt(p.signature.r), s: BigInt(p.signature.s) },
-  } as any)
+  const passkeys = creds.filter((k) => k.kind === 'passkey' && (!p.credentialId || k.passkey_id === p.credentialId))
+  const ok = passkeys.some((k) => {
+    try {
+      return WebAuthnP256.verify({
+        metadata: p.metadata,
+        challenge: c.challenge,
+        publicKey: PublicKey.fromHex(k.public_key as Hex),
+        signature: { r: BigInt(p.signature!.r), s: BigInt(p.signature!.s) },
+      } as any)
+    } catch {
+      return false
+    }
+  })
   if (!ok) throw new Error('bad signature')
-  challenges.delete(p.wallet.toLowerCase())
-  return mintSession(p.wallet)
+  challenges.delete(wallet)
+  return mintSession(wallet)
 }
 
 export function mintSession(wallet: Address): string {

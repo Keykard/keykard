@@ -7,6 +7,7 @@ import { api, getConfig, short, usd, type AppConfig } from '@/lib/api'
 import { signOut } from '@/lib/wallet'
 import { TapToCharge } from '@/components/TapToCharge'
 import { AccountBar, WrongAccount } from '@/components/AccountBar'
+import { SecureNudge, SecurityPanel } from '@/components/Security'
 
 type Dash = {
   merchant: { code: string; label: string; owner: string; settleTo: string; settlement: string }
@@ -30,6 +31,11 @@ export default function MerchantPage() {
     } catch (e: any) {
       setErr(e.message)
     }
+  }, [])
+  const reloadMe = useCallback(async () => {
+    try {
+      setMe(await api<Me>('/api/me'))
+    } catch {}
   }, [])
   const onReady = useCallback((m: Me) => {
     setMe(m)
@@ -74,6 +80,7 @@ export default function MerchantPage() {
       {!me && <Onboard role="merchant" onReady={onReady} />}
       {me && <AccountBar me={me} />}
       {me && me.user?.role !== 'merchant' && <WrongAccount me={me} want="merchant" here="Accepting payments" />}
+      {me?.user?.username && <SecureNudge username={me.user.username} sec={me.security ?? null} onChange={reloadMe} />}
 
       {me && me.user?.role === 'merchant' && !dash && (
         <div className="panel">
@@ -134,6 +141,7 @@ export default function MerchantPage() {
               History is read from the Tempo blockchain. Settled to your KEYKARD wallet <span className="mono">{short(dash.merchant.settleTo)}</span>.
             </p>
           </section>
+          {me?.user?.username && <SecurityPanel username={me.user.username} sec={me.security ?? null} onChange={reloadMe} />}
           <button className="ghost block" style={{ marginTop: 8 }} onClick={() => (signOut(), location.reload())}>Sign out</button>
         </>
       )}

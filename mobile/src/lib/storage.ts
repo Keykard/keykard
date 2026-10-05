@@ -9,6 +9,10 @@ export const KEYS = {
   passkey: 'keycard.passkey',
   vault: 'keycard.devicekey',
   mode: 'keycard.mode', // 'cardholder' | 'merchant': which home the app opens to
+  lastUsername: 'keycard.lastUsername',
+  recovery: 'keycard.recovery', // a "lost both" recovery started on this phone (new key's vault, never the password)
+  recoveryPasskey: 'keycard.recovery.passkey',
+  passkeyOfferDismissed: 'keycard.passkeyOfferDismissed',
 } as const
 
 const cache = new Map<string, string | null>()

@@ -72,6 +72,11 @@ export type AppConfig = {
   publicWebOrigin: string
   passkeyRpId: string
   merchants: { code: string; label: string }[]
+  creditTerms?: `0x${string}` | null
+  collateralVault?: `0x${string}` | null
+  /** Published pricing for missed payments, read from the CreditTerms contract. On time = 0%. */
+  terms?: { lateFee: string; penaltyBpsPerPeriod: number; capBps: number; address: string } | null
+  maxSecured?: string
 }
 
 let configPromise: Promise<AppConfig> | null = null

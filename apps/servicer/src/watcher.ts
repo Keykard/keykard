@@ -9,6 +9,7 @@ import { audit, sql } from './db'
 import { freezeLine, moveOnce, setSpendLimit } from './lines'
 import { Account } from 'viem/tempo'
 import { open } from './vault'
+import { indexExternalRepayments } from './repay'
 
 const transferEvent = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 amount)')
 const keyRevoked = (Abis.accountKeychain as readonly any[]).find((x) => x.type === 'event' && x.name === 'KeyRevoked')
@@ -53,7 +54,7 @@ async function handleRevocations(from: bigint, to: bigint) {
 async function onGuaranteeWithdrawn(row: any) {
   await lineBookWrite('recordGuarantorChange', [BigInt(row.linebook_id), '0x0000000000000000000000000000000000000000', 0n])
   await sql`UPDATE guarantee_invites SET status='withdrawn' WHERE line_id=${row.id} AND status='active'`
-  const base = tiers[0]
+  const base = tiers[0] + BigInt(row.secured ?? 0) // collateral-backed limit is not the guarantor's to take away
   const limit = BigInt(row.credit_limit)
   if (limit > base && row.status !== 'frozen') {
     // shrink: new available must be base - owed; sweep the excess back to treasury
@@ -117,6 +118,7 @@ export async function watchTick() {
       await handleRevocations(from, to)
       await indexSpends(from, to)
       await processPayments(from, to)
+      await indexExternalRepayments(from, to)
       await setCursor('watcher', to)
       from = to + 1n
     }

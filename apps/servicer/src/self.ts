@@ -6,6 +6,7 @@ import { env, publicWebOrigin } from './config'
 import { attestWallet } from './attest'
 import { audit, sql } from './db'
 import { UserError } from './lines'
+import { onRecoveryVerified } from './recovery'
 
 /**
  * Self Protocol (Enterprise SDK 0.4.1, verified against the installed package types 2026-09-28).
@@ -22,7 +23,7 @@ const ATTESTATION_TTL_DAYS = 365
 
 export const selfEnabled = () => Boolean(client && env.SELF_FLOW_ID_BORROWER && env.SELF_WEBHOOK_SECRET)
 
-export async function startSelfSession(wallet: Address, role: string) {
+export async function startSelfSession(wallet: Address, role: string, opts: { purpose?: 'verify' | 'recovery'; recoveryId?: string } = {}) {
   if (!client) throw new UserError('identity verification is not configured on this server', 503)
   const flowId = flowFor(role)
   if (!flowId) throw new UserError(`no Self flow configured for ${role}`, 503)
@@ -41,8 +42,8 @@ export async function startSelfSession(wallet: Address, role: string) {
     throw new UserError(`identity provider error: ${e?.message ?? 'Self unavailable'}`, 502)
   }
   await sql`
-    INSERT INTO self_sessions (id, wallet, role, status, external_uuid, flow_id, raw)
-    VALUES (${s.id}, ${wallet}, ${role}, 'pending', ${externalUuid}, ${flowId}, ${sql.json(s as any)})`
+    INSERT INTO self_sessions (id, wallet, role, status, external_uuid, flow_id, raw, purpose, recovery_id)
+    VALUES (${s.id}, ${wallet}, ${role}, 'pending', ${externalUuid}, ${flowId}, ${sql.json(s as any)}, ${opts.purpose ?? 'verify'}, ${opts.recoveryId ?? null})`
   return { verificationUrl: (s as any).verificationUrl as string, expiresAt: (s as any).expiresAt as string, sessionId: s.id }
 }
 
@@ -73,6 +74,12 @@ export async function handleSelfWebhook(rawBody: string, headers: Record<string,
     return
   }
   await sql`UPDATE self_sessions SET status=${event.status}, raw=${sql.json(event as any)}, updated_at=now() WHERE id=${session.id}`
+  if (session.purpose === 'recovery') {
+    // account recovery: compare the passport with the one on the account; never attest anything new
+    const sameFlow = event.flow_id === session.flow_id
+    await onRecoveryVerified(session.recovery_id, sameFlow ? event.nullifier ?? null : null, event.status === 'valid' && sameFlow)
+    return
+  }
 
   if (event.status !== 'valid' || !event.nullifier) {
     await audit({ actor: 'servicer', action: 'self.not_valid', detail: { wallet: session.wallet, status: event.status, reason: event.reason } })

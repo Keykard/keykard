@@ -7,7 +7,7 @@ import { hexToString, stringToHex, type Hex } from 'viem'
  *
  *   KC:<kind>:<lineId>:<seq>     e.g. "KC:INST:12:3" = line 12, instalment #3
  */
-export type MemoKind = 'FUND' | 'SPEND' | 'INST' | 'GUAR' | 'REFUND' | 'SETTLE'
+export type MemoKind = 'FUND' | 'SPEND' | 'INST' | 'GUAR' | 'REFUND' | 'SETTLE' | 'REPAY'
 
 export function encodeMemo(kind: MemoKind, lineId: number | bigint, seq: number | bigint = 0): Hex {
   const s = `KC:${kind}:${lineId}:${seq}`
@@ -22,7 +22,7 @@ export function decodeMemo(memo: Hex): { kind: MemoKind; lineId: bigint; seq: bi
   } catch {
     return null
   }
-  const m = /^KC:(FUND|SPEND|INST|GUAR|REFUND|SETTLE):(\d+):(\d+)$/.exec(s)
+  const m = /^KC:(FUND|SPEND|INST|GUAR|REFUND|SETTLE|REPAY):(\d+):(\d+)$/.exec(s)
   if (!m) return null
   return { kind: m[1] as MemoKind, lineId: BigInt(m[2]), seq: BigInt(m[3]) }
 }

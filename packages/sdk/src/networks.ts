@@ -22,6 +22,10 @@ export type Network = {
   /** Deployed KEYKARD contracts (filled after deploy). */
   registry?: Address
   lineBook?: Address
+  /** Published pricing for missed payments + the public record of every charge. */
+  creditTerms?: Address
+  /** Holds 1:1 stablecoin collateral for secured lines. */
+  collateralVault?: Address
   deployBlock?: bigint
 }
 

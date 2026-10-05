@@ -2,7 +2,7 @@ export * from './networks'
 export * from './memo'
 export * from './policy'
 export * from './abis'
-export { keycardRegistryBytecode, lineBookBytecode } from './bytecode'
+export { keycardRegistryBytecode, lineBookBytecode, creditTermsBytecode, collateralVaultBytecode } from './bytecode'
 
 /** KeycardRegistry flag bits (must match the Solidity constants). */
 export const Flags = {

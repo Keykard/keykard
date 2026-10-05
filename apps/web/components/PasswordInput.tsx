@@ -1,12 +1,12 @@
 'use client'
-import { useState, type InputHTMLAttributes } from 'react'
+import { useState, type InputHTMLAttributes, type Ref } from 'react'
 
 /** Password field with a show/hide toggle. Keeps every native input attribute (id, autoComplete…). */
-export function PasswordInput({ style, ...p }: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'>) {
+export function PasswordInput({ style, ref, ...p }: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & { ref?: Ref<HTMLInputElement> }) {
   const [shown, setShown] = useState(false)
   return (
     <span className="pw-wrap" style={style}>
-      <input {...p} type={shown ? 'text' : 'password'} />
+      <input {...p} ref={ref} type={shown ? 'text' : 'password'} />
       <button
         type="button"
         className="pw-toggle"

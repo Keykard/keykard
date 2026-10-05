@@ -2,7 +2,7 @@
   "expo": {
     "name": "KEYKARD",
     "slug": "keykard",
-    "version": "1.0.5",
+    "version": "1.0.7",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "keykard",
@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "com.keykard.app",
-      "versionCode": 6,
+      "versionCode": 8,
       "adaptiveIcon": {
         "backgroundColor": "#0A0A0B",
         "foregroundImage": "./assets/android-icon-foreground.png",

@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   twitter: { card: 'summary_large_image' },
   title: 'KEYKARD credit without the bank',
   description:
-    'A stablecoin credit card on Tempo. No bank, no collateral, no fees. Your card can only pay KEYKARD merchants, repayment is an auto-pay capped by the blockchain, and family can back you.',
+    'A stablecoin credit card on Tempo. No bank, no collateral needed, free if you pay on time. Your card can only pay KEYKARD merchants, repayment is an auto-pay capped by the blockchain, and family can back you.',
 }
 export const viewport: Viewport = { width: 'device-width', initialScale: 1, themeColor: '#0A0A0B' }
 

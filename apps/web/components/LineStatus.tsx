@@ -38,7 +38,11 @@ export function LineStatus({ line, walletBal, onChange }: { line: any; walletBal
   const graceIn = useCountdown(line.graceUntil)
   const owed = BigInt(line.owed ?? '0')
   const due = BigInt(line.amountDue ?? '0')
-  const payable = line.status === 'defaulted' ? due : owed > due ? owed : due
+  const fees = BigInt(line.feesDue ?? '0')
+  // the borrowed amount, plus any fees from a missed bill (paid in that order)
+  const payable = (line.status === 'defaulted' ? due : owed > due ? owed : due) + fees
+  const feeNote = fees > 0n && <> (includes <b>{usd(fees)}</b> in late fees)</>
+  const elsewhere = line.repayAccount && <p className="small">Or send it from any wallet or exchange: <a href="#repay-anywhere">your repayment address ↓</a></p>
   const short = walletBal !== null && payable > walletBal ? payable - walletBal : 0n
 
   const act = (label: string, fn: () => Promise<unknown>, done: string) => async () => {
@@ -76,11 +80,20 @@ export function LineStatus({ line, walletBal, onChange }: { line: any; walletBal
   if (line.status === 'active') {
     body = owed > 0n ? (
       <div className="notice small">
-        Next bill in <b>{nextIn ?? '—'}</b>: <b>{usd(owed)}</b> will be paid automatically from your wallet.
+        Next bill in <b>{nextIn ?? '—'}</b>: <b>{usd(owed + fees)}</b>{feeNote} will be paid automatically from your wallet.
         {lowBalance}
-        {owed > 0n && line.mandateActive && (
+        {line.mandateActive && (
           <div style={{ marginTop: 8 }}>
-            <button className="ghost block" disabled={busy !== null} onClick={payNow}>{busy === 'pay' ? 'Collecting…' : `Pay ${usd(owed)} now`}</button>
+            <button className="ghost block" disabled={busy !== null} onClick={payNow}>{busy === 'pay' ? 'Collecting…' : `Pay ${usd(owed + fees)} now`}</button>
+          </div>
+        )}
+      </div>
+    ) : fees > 0n ? (
+      <div className="notice small">
+        <b>{usd(fees)}</b> in late fees from a missed bill will be collected with your next bill in {nextIn ?? '—'}.
+        {line.mandateActive && (
+          <div style={{ marginTop: 8 }}>
+            <button className="ghost block" disabled={busy !== null} onClick={payNow}>{busy === 'pay' ? 'Collecting…' : `Pay ${usd(fees)} now`}</button>
           </div>
         )}
       </div>
@@ -91,9 +104,11 @@ export function LineStatus({ line, walletBal, onChange }: { line: any; walletBal
     body = (
       <div className="error">
         <b>{usd(due)} is overdue.</b> Your card is paused until it’s paid. Deadline: <b>{graceIn}</b>
-        {line.guarantorWallet ? ' — after that your guarantor is charged.' : ' — after that your line defaults.'}
+        {line.guarantorWallet ? ' — after that your guarantor is charged.' : Number(line.secured ?? 0) > 0 ? ' — after that your line defaults and your collateral covers it.' : ' — after that your line defaults.'}
+        {fees > 0n && <> A late fee applies, and interest is added each period it stays overdue: you now owe <b>{usd(payable)}</b>{feeNote}.</>}
         {lowBalance}
-        <div style={{ marginTop: 8 }}>{line.mandateActive ? <PayBtn label={`Pay ${usd(due)} now`} /> : <RenewBtn />}</div>
+        <div style={{ marginTop: 8 }}>{line.mandateActive ? <PayBtn label={`Pay ${usd(payable)} now`} /> : <RenewBtn />}</div>
+        {elsewhere}
       </div>
     )
   } else if (line.status === 'frozen') {
@@ -119,17 +134,19 @@ export function LineStatus({ line, walletBal, onChange }: { line: any; walletBal
           {line.mandateActive && payable > 0n && <PayBtn label={`Pay ${usd(payable)} now`} />}
           {line.freezeReason === 'MissedPayment' && <span className="small">Settle with your guarantor, then contact KEYKARD to reopen.</span>}
         </div>
+        {payable > 0n && elsewhere}
       </div>
     )
   } else if (line.status === 'defaulted') {
     body = (
       <div className="error">
-        <b>Line defaulted.</b> {usd(due)} was not repaid in time{line.guarantorWallet ? ' (guarantor included)' : ''}. It is recorded on
-        your public credit file. Pay it to settle your record and open a new line.
+        <b>Line defaulted.</b> You owe <b>{usd(payable)}</b>{feeNote}. It is recorded on your public credit file, and interest is added
+        each period until it’s paid (capped). Pay it to settle your record and open a new line.
         {lowBalance}
         <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
-          {line.mandateActive ? <PayBtn label={`Pay ${usd(due)} to settle`} /> : <RenewBtn />}
+          {line.mandateActive ? <PayBtn label={`Pay ${usd(payable)} to settle`} /> : <RenewBtn />}
         </div>
+        {elsewhere}
       </div>
     )
   } else if (line.status === 'settled') {

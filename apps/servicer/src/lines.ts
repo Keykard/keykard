@@ -70,8 +70,8 @@ export async function activeMerchants(): Promise<Address[]> {
   return [settlement.address]
 }
 
-/** Maximum any line can ever reach; the mandate is authorised for this cap once, up front. */
-export const mandateCap = () => tiers[tiers.length - 1]
+/** Maximum any line can ever reach (top unsecured tier + the most collateral); the auto-pay is authorised for it once. */
+export const mandateCap = () => tiers[tiers.length - 1] + env.MAX_SECURED
 
 // ---------------------------------------------------------------------------------------------
 // 1. PREPARE: create the credit account + mandate key; return what the borrower must sign.
@@ -165,12 +165,16 @@ export async function openLine(borrower: Address, lineId: number) {
   // (c) authorise the borrower's passkey as the spend key on the credit account
   const merchants = await activeMerchants()
   const pol = spendKeyPolicy({ token: net.token, limit, period: row.period_seconds, merchants, expiry })
-  // the user's own signer (passkey or password device key) becomes the card key on the credit account
-  const deviceKey = user.key_type === 'secp256k1'
-  const spendKeyId = deviceKey ? lower(user.wallet) : webAuthnKeyId(user.passkey_public_key as Hex, row.credit_account)
+  // the user's own sign-in keys become the card keys on the credit account: the first here, the rest via
+  // syncSpendKeys below (password key first: it works on every device)
+  const [first] = await sql`SELECT * FROM credentials WHERE wallet=${borrower} AND status='active' AND kind IN ('password','passkey')
+                            ORDER BY (kind='password') DESC, is_root DESC, id LIMIT 1`
+  const deviceKey = first ? first.kind === 'password' : user.key_type === 'secp256k1'
+  const passkeyPub = (first?.public_key ?? user.passkey_public_key) as Hex
+  const spendKeyId = deviceKey ? lower(first?.key_id ?? user.wallet) : webAuthnKeyId(passkeyPub, row.credit_account)
   const accessKey = deviceKey
     ? { address: spendKeyId, type: 'secp256k1' as const }
-    : { publicKey: user.passkey_public_key as Hex, type: 'webAuthn' as const }
+    : { publicKey: passkeyPub, type: 'webAuthn' as const }
   await resilient(
     'authorize-spend-key',
     () =>
@@ -213,11 +217,14 @@ export async function openLine(borrower: Address, lineId: number) {
     )
   }
 
+  await sql`INSERT INTO line_spend_keys (line_id, key_id) VALUES (${row.id}, ${spendKeyId}) ON CONFLICT DO NOTHING`
   await sql`
     UPDATE lines SET status = 'active', linebook_id = ${linebookId.toString()}, spend_key_id = ${spendKeyId},
       opened_at = now(), next_due = now() + (${row.period_seconds} || ' seconds')::interval, updated_at = now()
     WHERE id = ${row.id}`
   await audit({ lineId: row.id, actor: 'servicer', action: 'line.opened', detail: { linebookId, spendKeyId, limit }, txHash: openTx })
+  // the account's other sign-in keys (e.g. a passkey next to the password) become card keys too
+  await syncSpendKeys(borrower).catch((e) => console.error('[open] card key sync failed', e?.shortMessage ?? e?.message ?? e))
   return lineView(row.id)
 }
 
@@ -226,12 +233,12 @@ export async function openLine(borrower: Address, lineId: number) {
 // ---------------------------------------------------------------------------------------------
 export async function moveOnce(p: {
   lineId: number
-  kind: 'FUND' | 'INST' | 'GUAR' | 'TOPUP'
+  kind: 'FUND' | 'INST' | 'GUAR' | 'TOPUP' | 'EXT' | 'REFUND'
   seq: number
   from: any // viem account (root or access key)
   to: Address
   amount: bigint
-  memoKind: 'FUND' | 'INST' | 'GUAR' | 'REFUND'
+  memoKind: 'FUND' | 'INST' | 'GUAR' | 'REFUND' | 'REPAY'
 }): Promise<{ txHash: Hex | null; status: 'confirmed' | 'failed'; error?: string }> {
   const memoSeq = p.kind === 'TOPUP' ? 1_000_000 + p.seq : p.seq
   const memoHex = encodeMemo(p.memoKind, p.lineId, memoSeq)
@@ -309,9 +316,65 @@ async function updateKeyLimit(row: any, keyId: string, newLimit: bigint) {
   )
 }
 
-/** Sets the phone/passkey card key's per-period limit (used on tier upgrades). */
+/** Every key the user can pay with on this line (password key, passkeys). Falls back to the original card key. */
+async function spendKeys(row: any): Promise<string[]> {
+  const keys = (await sql`SELECT key_id FROM line_spend_keys WHERE line_id=${row.id} AND status='active'`).map((r) => r.key_id as string)
+  return keys.length > 0 ? keys : row.spend_key_id ? [row.spend_key_id] : []
+}
+
+/** Sets the card keys' per-period limit (used on tier upgrades). */
 export async function setSpendLimit(row: any, newLimit: bigint) {
-  if (row.spend_key_id) await updateKeyLimit(row, row.spend_key_id, newLimit)
+  for (const k of await spendKeys(row)) await updateKeyLimit(row, k, newLimit)
+}
+
+/**
+ * Keep the credit account's card keys in step with the account's sign-in keys: every active password key and
+ * passkey can pay (recovery keys never can). Added keys are authorised with the line's current limit (0 while the
+ * line is paused); removed ones are revoked on-chain.
+ */
+export async function syncSpendKeys(wallet: Address) {
+  wallet = lower(wallet)
+  const [row] = await sql`SELECT * FROM lines WHERE borrower_wallet=${wallet} AND status IN ('active','grace','frozen') AND spend_key_id IS NOT NULL
+                          ORDER BY created_at DESC LIMIT 1`
+  if (!row) return
+  const creds = await sql`SELECT * FROM credentials WHERE wallet=${wallet} AND status='active' AND kind IN ('password','passkey')`
+  const desired = creds.map((c) =>
+    c.kind === 'password'
+      ? { keyId: lower(c.key_id), credId: c.id, accessKey: { address: lower(c.key_id), type: 'secp256k1' as const } }
+      : { keyId: webAuthnKeyId(c.public_key as Hex, row.credit_account), credId: c.id, accessKey: { publicKey: c.public_key as Hex, type: 'webAuthn' as const } },
+  )
+  const existing = (await sql`SELECT key_id FROM line_spend_keys WHERE line_id=${row.id} AND status='active'`).map((r) => lower(r.key_id))
+  const creditRoot = Account.fromSecp256k1(open(row.credit_root_enc))
+  const limit = row.status === 'active' ? BigInt(row.credit_limit) : 0n
+  const pol = spendKeyPolicy({ token: net.token, limit, period: row.period_seconds, merchants: await activeMerchants(), expiry: Math.floor(new Date(row.term_end).getTime() / 1000) })
+  for (const d of desired) {
+    if (existing.includes(d.keyId)) continue
+    const k = await getKey(row.credit_account, d.keyId)
+    if (!k.exists || k.revoked) {
+      await resilient(
+        'authorize-card-key',
+        () => Actions.accessKey.authorizeSync(clientFor(creditRoot), { accessKey: d.accessKey, ...pol, feePayer: treasury } as any),
+        async () => (await getKey(row.credit_account, d.keyId)).exists,
+      )
+    }
+    await sql`INSERT INTO line_spend_keys (line_id, key_id, credential_id) VALUES (${row.id}, ${d.keyId}, ${d.credId})
+              ON CONFLICT (line_id, key_id) DO UPDATE SET status='active', credential_id=EXCLUDED.credential_id`
+    await audit({ lineId: row.id, actor: 'servicer', action: 'card_key.added', detail: { keyId: d.keyId } })
+  }
+  const keep = new Set(desired.map((d) => d.keyId))
+  for (const keyId of existing) {
+    if (keep.has(keyId) || keyId === lower(row.card_key_id ?? '')) continue
+    const k = await getKey(row.credit_account, keyId as Address)
+    if (k.exists && !k.revoked) {
+      await resilient(
+        'revoke-card-key',
+        () => Actions.accessKey.revokeSync(clientFor(creditRoot), { accessKey: keyId, feePayer: treasury } as any),
+        async () => (await getKey(row.credit_account, keyId as Address)).revoked,
+      )
+    }
+    await sql`UPDATE line_spend_keys SET status='revoked' WHERE line_id=${row.id} AND key_id=${keyId}`
+    await audit({ lineId: row.id, actor: 'servicer', action: 'card_key.removed', detail: { keyId } })
+  }
 }
 
 /**
@@ -320,7 +383,7 @@ export async function setSpendLimit(row: any, newLimit: bigint) {
  */
 export async function applyLimits(row: any, mode: 'normal' | 'blocked') {
   const spend = mode === 'normal' ? BigInt(row.credit_limit) : 0n
-  if (row.spend_key_id) await updateKeyLimit(row, row.spend_key_id, spend)
+  for (const k of await spendKeys(row)) await updateKeyLimit(row, k, spend)
   if (row.card_key_id && row.card_status === 'active') {
     const card = mode === 'normal' ? BigInt(row.card_limit ?? 0) : 0n
     await updateKeyLimit(row, row.card_key_id, card)
@@ -351,7 +414,11 @@ export async function lineView(id: number | bigint) {
       periodEnd = r.periodEnd
     }
   }
-  const owed = available === null ? 0n : limit > available ? limit - available : 0n
+  // after a default the credit account is swept, so what's owed is the unpaid amount on record, not limit - balance
+  const owed =
+    row.status === 'defaulted' ? BigInt(row.amount_due)
+    : row.status === 'settled' || row.status === 'closed' ? 0n
+    : available === null ? 0n : limit > available ? limit - available : 0n
   let mandateActive = false
   if (row.status !== 'preparing') {
     const k = await getKey(row.borrower_wallet, row.repay_key_id).catch(() => null)
@@ -386,6 +453,14 @@ export async function lineView(id: number | bigint) {
     guarantorWallet: row.guarantor_wallet,
     guaranteed: row.guaranteed.toString(),
     mandateCap: row.mandate_cap.toString(),
+    // pricing for missed payments + repay-from-anywhere + secured limit
+    feesDue: String(row.fees_due ?? 0),
+    feesCharged: String(row.fees_charged ?? 0),
+    feesPaid: String(row.fees_paid ?? 0),
+    totalDue: (BigInt(row.amount_due) + BigInt(row.fees_due ?? 0)).toString(),
+    repayAccount: (row.repay_account as Address | null) ?? null,
+    secured: String(row.secured ?? 0),
+    unsecuredLimit: (limit - BigInt(row.secured ?? 0)).toString(),
     periodSeconds: row.period_seconds,
     termEnd: row.term_end,
   }

@@ -12,11 +12,20 @@ import { Banner, Button, Chip, Field, ListRow, Panel, Row, Text } from '@/ui/kit
 import { KeykardCard } from '@/ui/KeykardCard'
 import { LineStatus } from '@/ui/LineStatus'
 import { Countdown } from '@/ui/Countdown'
+import { SecureNudge } from '@/ui/Security'
 import { color, font, skins, type Skin } from '@/ui/theme'
 
 type Activity = {
   spends: { tx_hash: string; label: string | null; merchant_code: string | null; amount: string; status: string; created_at?: string }[]
   movements: { tx_hash: string; kind: string; amount: string; status: string; created_at?: string }[]
+  charges?: { tx_hash: string; kind: 'late_fee' | 'penalty'; amount: string; overdue: string; created_at?: string }[]
+}
+
+const REPAID: Record<string, [string, string]> = {
+  INST: ['Auto-pay', 'Bill paid'],
+  GUAR: ['Paid by your family backup', 'Covered a missed bill'],
+  EXT: ['Repaid from another wallet', 'Sent to your repayment address'],
+  SEIZE: ['Covered by your collateral', 'After the default, from the vault'],
 }
 
 function Action({ icon, label, onPress, primary, disabled, testID }: { icon: string; label: string; onPress: () => void; primary?: boolean; disabled?: boolean; testID?: string }) {
@@ -65,10 +74,11 @@ export default function Home() {
   const frozen = line.status !== 'active'
   const receipt = (tx: string) => WebBrowser.openBrowserAsync(`${cfg.explorerUrl}/tx/${tx}`, { toolbarColor: color.bg })
   const spends = act?.spends ?? []
-  const repaid = (act?.movements ?? []).filter((m) => m.status === 'confirmed' && (m.kind === 'INST' || m.kind === 'GUAR'))
+  const repaid = (act?.movements ?? []).filter((m) => m.status === 'confirmed' && m.kind in REPAID)
   const rows = [
     ...spends.map((s) => ({ key: s.tx_hash, at: s.created_at ?? '', icon: '↗', title: s.label ?? s.merchant_code ?? 'Payment', sub: s.status === 'settled' ? 'Paid to merchant' : s.status === 'received' ? 'Settling to merchant…' : s.status.replace(/_/g, ' '), right: `−${usd(s.amount)}`, positive: false, tx: s.tx_hash })),
-    ...repaid.map((m) => ({ key: m.tx_hash, at: m.created_at ?? '', icon: '↺', title: m.kind === 'INST' ? 'Auto-pay' : 'Paid by your family backup', sub: m.kind === 'INST' ? 'Bill paid' : 'Covered a missed bill', right: `+${usd(m.amount)}`, positive: true, tx: m.tx_hash })),
+    ...repaid.map((m) => ({ key: m.tx_hash, at: m.created_at ?? '', icon: '↺', title: REPAID[m.kind][0], sub: REPAID[m.kind][1], right: `+${usd(m.amount)}`, positive: true, tx: m.tx_hash })),
+    ...(act?.charges ?? []).map((c) => ({ key: c.tx_hash, at: c.created_at ?? '', icon: '!', title: c.kind === 'late_fee' ? 'Late fee' : 'Overdue interest', sub: c.kind === 'late_fee' ? 'A bill was missed' : `On ${usd(c.overdue)} overdue`, right: usd(c.amount), positive: false, tx: c.tx_hash })),
   ].sort((a, b) => (b.at > a.at ? 1 : -1))
 
   return (
@@ -89,11 +99,12 @@ export default function Home() {
           </Pressable>
         </Row>
         {!me.user?.username && <UsernameSetter onSet={load} />}
+        <SecureNudge username={me.user?.username} sec={me.security} onChange={() => void load()} />
 
         <KeykardCard
           testID="home-card"
           amount={usd(line.spendable)}
-          sub={`Limit ${usd(line.limit)} · owed ${usd(line.owed)}`}
+          sub={`Limit ${usd(line.limit)} · owed ${usd(line.owed)}${BigInt(line.feesDue ?? '0') > 0n ? ` + ${usd(line.feesDue)} fees` : ''}`}
           skin={skin}
           badge={skins[skin].label}
           last4={line.creditAccount.slice(-4)}
@@ -125,6 +136,11 @@ export default function Home() {
           ) : (
             rows.slice(0, 20).map((r) => <ListRow key={r.key} icon={r.icon} title={r.title} sub={r.sub} right={r.right} rightSub="Receipt ↗" positive={r.positive} onPress={() => receipt(r.tx)} />)
           )}
+        </Panel>
+
+        <Panel>
+          <ListRow icon="⇣" title="Repay from any wallet" sub="Exchange, another wallet or family" onPress={() => router.push('/repay')} />
+          {['active', 'grace', 'frozen'].includes(line.status) && <ListRow icon="▣" title="A bigger limit" sub={BigInt(line.secured ?? '0') > 0n ? `${usd(line.secured)} secured by your collateral` : 'Lock collateral 1:1, spend more'} onPress={() => router.push('/secured')} />}
         </Panel>
 
         <Pressable onPress={() => router.push('/family')} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>

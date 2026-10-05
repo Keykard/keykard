@@ -3,7 +3,7 @@ import { Account, Actions } from 'viem/tempo'
 import { KeyAuthorization } from 'ox/tempo'
 import { Selectors } from 'viem/tempo'
 import { net } from './config'
-import { clientFor, getKey, treasury } from './chain'
+import { clientFor, getKey, remainingLimit, sendWithBackoff, treasury, verifyKeyPolicy } from './chain'
 import { UserError } from './lines'
 import { open } from './vault'
 
@@ -57,13 +57,44 @@ export function checkKeyAuthorization(
 export async function activateKeyAuthorization(p: { owner: Address; keyId: Address; sealedKey: string; ka: any }) {
   if ((await getKey(p.owner, p.keyId)).exists) return null
   const key = Account.fromSecp256k1(open(p.sealedKey), { access: p.owner })
-  const r = (await Actions.token.transferSync(clientFor(key), {
-    token: net.token,
-    to: treasury.address,
-    amount: 0n,
-    keyAuthorization: p.ka,
-    feePayer: treasury,
-  } as any)) as any
+  // a rate-limited send is rejected before broadcast, so retrying it is safe
+  const r = (await sendWithBackoff(() =>
+    Actions.token.transferSync(clientFor(key), {
+      token: net.token,
+      to: treasury.address,
+      amount: 0n,
+      keyAuthorization: p.ka,
+      feePayer: treasury,
+    } as any),
+  )) as any
   if (r.receipt.status !== 'success') throw new UserError('could not activate permission on-chain', 502)
   return r.receipt.transactionHash as Hex
+}
+
+/**
+ * Accept a permission either way it can arrive:
+ *   - `keyAuthorization` signed by the wallet's ROOT key: checked against the terms, then activated by KEYKARD; or
+ *   - nothing: the user's ADMIN key (a passkey, or a reset password) already sent the authorization itself, because
+ *     Tempo requires an admin-signed authorization to travel in a transaction that same admin signs. Then the key
+ *     must already be on-chain with exactly the agreed terms.
+ */
+export async function acceptGrant(p: {
+  owner: Address
+  keyId: Address
+  sealedKey: string
+  keyAuthorization?: Hex
+  expect: { expiry: number; limit: bigint; period: number; recipients: Address[] }
+}) {
+  if (p.keyAuthorization) {
+    const ka = checkKeyAuthorization(p.keyAuthorization, { keyId: p.keyId, ...p.expect })
+    return activateKeyAuthorization({ owner: p.owner, keyId: p.keyId, sealedKey: p.sealedKey, ka })
+  }
+  const k = await getKey(p.owner, p.keyId)
+  if (!k.exists || k.revoked) throw new UserError('the permission is not on your wallet yet: try again in a moment', 409)
+  if (Number(k.expiry) !== p.expect.expiry) throw new UserError('signed permission does not match the agreed terms: expiry')
+  const v = await verifyKeyPolicy({ account: p.owner, keyId: p.keyId, recipients: p.expect.recipients })
+  if (!v.ok) throw new UserError(`signed permission does not match the agreed terms: ${v.reason}`)
+  const lim = await remainingLimit(p.owner, p.keyId)
+  if (lim.remaining !== p.expect.limit) throw new UserError('signed permission does not match the agreed terms: amount')
+  return null
 }

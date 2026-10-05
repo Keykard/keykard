@@ -28,7 +28,7 @@ export default function Autopay() {
 
   if (!line || !cfg) return <Screen><Text>Loading…</Text></Screen>
   const tiers = cfg.tiers.map((t) => BigInt(t))
-  const tierIdx = tiers.reduce((i, t, k) => (BigInt(line.limit) >= t ? k : i), 0)
+  const tierIdx = tiers.reduce((i, t, k) => (BigInt(line.unsecuredLimit ?? line.limit) >= t ? k : i), 0)
 
   const turnOff = () =>
     Alert.alert('Turn off auto-pay?', 'Your card freezes straight away. You can turn auto-pay back on later.', [
@@ -88,6 +88,26 @@ export default function Autopay() {
           ))}
         </View>
         <Text v="small" style={{ marginTop: 12 }}>On-time streak: {line.onTimeCount}. Two on-time bills in a row move you up a step.</Text>
+        <Link title="Need more? Secure a bigger limit 1:1 ›" style={{ marginTop: 10 }} onPress={() => router.push('/secured')} />
+      </Panel>
+
+      {cfg.terms && (
+        <Panel>
+          <Text v="h3">What a missed bill costs</Text>
+          <Text v="small" style={{ marginTop: 4 }}>
+            On time costs nothing. A missed bill costs a {usd(cfg.terms.lateFee)} late fee, then {cfg.terms.penaltyBpsPerPeriod / 100}% of the overdue amount each
+            billing period, never more than {cfg.terms.capBps / 100}% of it in total. Family backups never pay fees. These terms are published on-chain.
+          </Text>
+          {BigInt(line.feesPaid ?? '0') + BigInt(line.feesDue ?? '0') > 0n && (
+            <Text v="small" style={{ marginTop: 8, color: color.text }}>Fees due now: {usd(line.feesDue)} · paid so far: {usd(line.feesPaid)}</Text>
+          )}
+        </Panel>
+      )}
+
+      <Panel>
+        <Text v="h3">Repay from any wallet</Text>
+        <Text v="small" style={{ marginTop: 4 }}>Pay from an exchange, another wallet or family, even with auto-pay off.</Text>
+        <Button title="Show my repayment address" kind="ghost" small style={{ marginTop: 12 }} onPress={() => router.push('/repay')} />
       </Panel>
 
       {err && <Banner kind="error">{err}</Banner>}

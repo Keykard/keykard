@@ -11,6 +11,9 @@ import { StartOver } from '@/components/StartOver'
 import { PhysicalCard } from '@/components/PhysicalCard'
 import { LineStatus } from '@/components/LineStatus'
 import { UsernameBanner } from '@/components/UsernameBanner'
+import { RepayAnywhere, TermsNote } from '@/components/RepayAnywhere'
+import { Secured } from '@/components/Secured'
+import { SecureNudge, SecurityPanel } from '@/components/Security'
 import { MERCHANT_CODE_RE } from '@keycard/sdk'
 import type { Me } from '@/components/Onboard'
 
@@ -134,12 +137,20 @@ export default function CardPage() {
   if (!line || !cfg) return <main className="wrap"><p className="muted" style={{ marginTop: 40 }}>Loading your card…</p>{err && <p className="error">{err}</p>}</main>
 
   const spends = activity?.spends ?? []
-  const repaid = (activity?.movements ?? []).filter((m: any) => m.status === 'confirmed' && (m.kind === 'INST' || m.kind === 'GUAR'))
-  const tierIdx = cfg.tiers.reduce((i: number, t: any, k: number) => (BigInt(line.limit ?? '0') >= BigInt(t) ? k : i), 0)
+  const repaid = (activity?.movements ?? []).filter((m: any) => m.status === 'confirmed' && ['INST', 'GUAR', 'EXT', 'SEIZE'].includes(m.kind))
+  const charges = activity?.charges ?? []
+  const REPAID: Record<string, [string, string]> = {
+    INST: ['Auto-pay', 'Bill paid'],
+    GUAR: ['Paid by your family backup', 'Covered a missed bill'],
+    EXT: ['Repaid from another wallet', 'Sent to your repayment address'],
+    SEIZE: ['Covered by your collateral', 'After the default, from the vault'],
+  }
+  const tierIdx = cfg.tiers.reduce((i: number, t: any, k: number) => (BigInt(line.unsecuredLimit ?? line.limit ?? '0') >= BigInt(t) ? k : i), 0)
 
   return (
     <main className="wrap">
       <UsernameBanner username={(me as any)?.user?.username} onSet={load} />
+      {me?.user?.username && <SecureNudge username={me.user.username} sec={me.security ?? null} onChange={load} />}
       <div className={`card ${frozen ? 'frozen' : ''}`} data-status={line.status}>
         <span className="chip" aria-hidden />
         <div className="foot">
@@ -149,7 +160,7 @@ export default function CardPage() {
         <div className="label">Available to spend</div>
         <div className="big">{usd(line.spendable)}</div>
         <div className="small">
-          Limit {usd(line.limit)} · owed {usd(line.owed)}
+          Limit {usd(line.limit)} · owed {usd(line.owed)}{BigInt(line.feesDue ?? 0) > 0n ? ` + ${usd(line.feesDue)} fees` : ''}
         </div>
       </div>
 
@@ -197,36 +208,39 @@ export default function CardPage() {
         </div>
         {!activity ? (
           <p className="empty">Loading…</p>
-        ) : spends.length + repaid.length === 0 ? (
+        ) : spends.length + repaid.length + charges.length === 0 ? (
           <p className="empty">No payments yet. Your first one shows up here.</p>
         ) : (
           <ul className="list">
-            {spends.map((s: any) => (
-              <li key={s.tx_hash}>
-                <span className="ic" aria-hidden>↗</span>
-                <span className="grow">
-                  <b>{s.label ?? s.merchant_code ?? 'Payment'}</b>
-                  <small>{s.status === 'settled' ? 'Paid to merchant' : s.status === 'received' ? 'Settling to merchant…' : s.status.replace(/_/g, ' ')}</small>
-                </span>
-                <span className="amt">
-                  −{usd(s.amount)}
-                  <a href={`${cfg.explorerUrl}/tx/${s.tx_hash}`} target="_blank" rel="noreferrer">Receipt ↗</a>
-                </span>
-              </li>
-            ))}
-            {repaid.map((m: any) => (
-              <li key={m.tx_hash}>
-                <span className="ic in" aria-hidden>↺</span>
-                <span className="grow">
-                  <b>{m.kind === 'INST' ? 'Auto-pay' : 'Paid by your family backup'}</b>
-                  <small>{m.kind === 'INST' ? 'Bill paid' : 'Covered a missed bill'}</small>
-                </span>
-                <span className="amt ok">
-                  +{usd(m.amount)}
-                  <a href={`${cfg.explorerUrl}/tx/${m.tx_hash}`} target="_blank" rel="noreferrer">Receipt ↗</a>
-                </span>
-              </li>
-            ))}
+            {[
+              ...spends.map((s: any) => ({
+                key: s.tx_hash, at: s.created_at ?? '', icon: '↗', title: s.label ?? s.merchant_code ?? 'Payment',
+                sub: s.status === 'settled' ? 'Paid to merchant' : s.status === 'received' ? 'Settling to merchant…' : s.status.replace(/_/g, ' '),
+                amt: `−${usd(s.amount)}`, tone: '', tx: s.tx_hash, link: 'Receipt',
+              })),
+              ...charges.map((c: any) => ({
+                key: c.tx_hash, at: c.created_at ?? '', icon: '!', title: c.kind === 'late_fee' ? 'Late fee' : 'Overdue interest',
+                sub: c.kind === 'late_fee' ? 'A bill was missed' : `On ${usd(c.overdue)} overdue`, amt: usd(c.amount), tone: 'warn', tx: c.tx_hash, link: 'Record',
+              })),
+              ...repaid.map((m: any) => ({
+                key: m.tx_hash, at: m.created_at ?? '', icon: '↺', title: REPAID[m.kind][0], sub: REPAID[m.kind][1],
+                amt: `+${usd(m.amount)}`, tone: 'ok', tx: m.tx_hash, link: 'Receipt', in: true,
+              })),
+            ]
+              .sort((a, b) => (b.at > a.at ? 1 : -1))
+              .map((r: any) => (
+                <li key={r.key}>
+                  <span className={`ic ${r.in ? 'in' : ''}`} aria-hidden>{r.icon}</span>
+                  <span className="grow">
+                    <b>{r.title}</b>
+                    <small>{r.sub}</small>
+                  </span>
+                  <span className={`amt ${r.tone}`}>
+                    {r.amt}
+                    <a href={`${cfg.explorerUrl}/tx/${r.tx}`} target="_blank" rel="noreferrer">{r.link} ↗</a>
+                  </span>
+                </li>
+              ))}
           </ul>
         )}
       </section>
@@ -250,7 +264,12 @@ export default function CardPage() {
           ))}
         </div>
         <p className="small muted">Two on-time bills in a row move you up a step.</p>
+        <TermsNote cfg={cfg} />
       </section>
+
+      <RepayAnywhere line={line} cfg={cfg} />
+
+      <Secured line={line} collateral={me?.collateral} cfg={cfg} walletBal={walletBal} onChange={load} />
 
       {me?.user && (
         <div id="add">
@@ -287,6 +306,8 @@ export default function CardPage() {
           </>
         )}
       </section>
+
+      {me?.user?.username && <SecurityPanel username={me.user.username} sec={me.security ?? null} onChange={load} />}
 
       <section className="panel" id="settings">
         <h2>Settings</h2>

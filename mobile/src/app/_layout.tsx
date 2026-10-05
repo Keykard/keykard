@@ -10,6 +10,7 @@ import { GeistMono_400Regular, GeistMono_500Medium } from '@expo-google-fonts/ge
 import { load } from '@/lib/storage'
 import { SessionProvider } from '@/lib/session'
 import { PasswordPromptHost } from '@/ui/PasswordPrompt'
+import { AppLock } from '@/ui/AppLock'
 import { color } from '@/ui/theme'
 
 SplashScreen.preventAutoHideAsync().catch(() => {})
@@ -50,6 +51,7 @@ export default function Root() {
           <Stack.Screen name="scan" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
         </Stack>
         <PasswordPromptHost />
+        <AppLock />
         <NavLog />
       </SessionProvider>
     </SafeAreaProvider>

@@ -11,13 +11,18 @@ import { UserError, lineView, openLine, prepareLine, freezeLine } from './lines'
 import { confirmGuarantee, createInvite, getInvite, prepareGuarantee } from './guarantee'
 import { selfEnabled, startSelfSession, handleSelfWebhook, devVerify, devVerifyEnabled } from './self'
 import { stats } from './stats'
-import { activateKeyAuthorization, checkKeyAuthorization } from './keyauth'
+import { acceptGrant } from './keyauth'
 import { fetchVault, normUsername, storeBackup, usernameAvailable } from './passwordlogin'
 import { cardChallenge, cardInfo, linkCard, releaseCard, setCardFrozen, unlinkCard } from './cards'
 import { confirmRenewMandate, maybeUnfreeze, payNow, renewMandate } from './lifecycle'
 import { getMerchant, merchantDashboard, registerMerchant } from './merchants'
 import { settlement, publicClient } from './chain'
 import { Actions } from 'viem/tempo'
+import { publishedTerms } from './charges'
+import { ensureRepayAccount } from './repay'
+import { collateralView, confirmCollateral, prepareCollateral, releaseCollateral } from './collateral'
+import { accountInfo, changePassword, confirmChange, prepareChange, securityView } from './credentials'
+import { cancelRecovery, recoveryStatus, startRecovery } from './recovery'
 
 type Vars = { wallet: Address }
 export const app = new Hono<{ Variables: Vars }>()
@@ -56,6 +61,11 @@ app.get('/api/config', async (c) => {
     tokenDecimals: net.tokenDecimals,
     registry: net.registry,
     lineBook: net.lineBook,
+    creditTerms: net.creditTerms ?? null,
+    collateralVault: net.collateralVault ?? null,
+    // published pricing for missed payments (read from the CreditTerms contract); on time = 0%
+    terms: await publishedTerms().catch(() => null),
+    maxSecured: env.MAX_SECURED.toString(),
     treasury: treasury.address,
     settlement: settlement.address,
     tiers: tiers.map(String),
@@ -152,6 +162,13 @@ app.post('/api/users', async (c) => {
   const [u] = await sql`SELECT wallet, role FROM users WHERE wallet=${wallet}`
   if (u.role !== b.role) throw new UserError(`this passkey is already registered as a ${u.role}`, 409)
   if (keyType === 'secp256k1' && b.backup && inserted.length > 0) await storeBackup({ ...b.backup, username: uname ?? b.backup.username, wallet })
+  if (inserted.length > 0) {
+    // the account's first key is its root: the password key (new sign-ups) or a passkey (older apps)
+    await sql`INSERT INTO credentials (wallet, kind, key_id, is_root, passkey_id, public_key, status)
+              VALUES (${wallet}, ${keyType === 'secp256k1' ? 'password' : 'passkey'}, ${wallet}, true,
+                      ${keyType === 'secp256k1' ? null : passkeyId}, ${keyType === 'secp256k1' ? null : publicKey.toLowerCase()}, 'active')
+              ON CONFLICT (wallet, key_id) DO NOTHING`
+  }
   await audit({ actor: b.role, action: 'user.registered', detail: { wallet, residence: b.residenceCountry, ipCountry, verified } })
   // a freshly registered, server-verified passkey signs the user in without a second prompt
   const token = verified && inserted.length > 0 ? mintSession(wallet) : undefined
@@ -160,10 +177,45 @@ app.post('/api/users', async (c) => {
 
 // Passkey public keys are not secret; the browser needs them to restore the account on sign-in.
 app.get('/api/passkeys/:id', async (c) => {
-  const [u] = await sql`SELECT wallet, role, username, passkey_public_key FROM users WHERE passkey_id=${c.req.param('id')}`
-  if (!u) throw new UserError('unknown passkey', 404)
-  return c.json({ wallet: u.wallet, role: u.role, username: u.username, publicKey: u.passkey_public_key })
+  const [k] = await sql`SELECT c.wallet, c.public_key, c.is_root, u.role, u.username FROM credentials c JOIN users u ON u.wallet=c.wallet
+                        WHERE c.passkey_id=${c.req.param('id')} AND c.kind='passkey' AND c.status='active'`
+  if (!k) throw new UserError('this passkey isn’t linked to a KEYKARD account (it may have been replaced)', 404)
+  return c.json({ wallet: k.wallet, role: k.role, username: k.username, publicKey: k.public_key, root: k.is_root })
 })
+
+// Identifier-first sign-in: what the next screen should offer for this username.
+app.get('/api/accounts/:username', async (c) => c.json(await accountInfo(c.req.param('username'))))
+
+// ---------------- sign-in methods on the account (password, passkeys, recovery key) ----------------
+const passwordIn = z.object({
+  keyRegistration: z.object({ challengeId: z.string(), address: addr, signature: z.string().regex(/^0x[0-9a-fA-F]+$/) }),
+  authProof: z.string().regex(/^[0-9a-f]{64}$/),
+  vault: z.object({ address: addr }).passthrough(),
+})
+const passkeyIn = z.union([
+  z.object({ challengeId: z.string(), credential: z.any() }),
+  z.object({ unverified: z.object({ id: z.string(), publicKey: z.string().regex(/^0x(04)?[0-9a-fA-F]{128}$/) }) }),
+])
+app.post('/api/credentials/prepare', requireSession, async (c) => {
+  const b = z.object({ password: passwordIn.optional(), passkey: passkeyIn.optional(), recovery: z.boolean().optional(), remove: z.array(z.number()).optional() }).parse(await c.req.json())
+  return c.json(await prepareChange(c.get('wallet'), b as any))
+})
+app.post('/api/credentials/confirm', requireSession, async (c) => {
+  const b = z.object({ remove: z.array(z.number()).optional() }).parse(await c.req.json().catch(() => ({})))
+  return c.json(await confirmChange(c.get('wallet'), b.remove))
+})
+app.post('/api/auth/password/change', requireSession, async (c) => {
+  const b = z.object({ authProof: z.string().regex(/^[0-9a-f]{64}$/), vault: z.object({ address: addr }).passthrough() }).parse(await c.req.json())
+  return c.json(await changePassword(c.get('wallet'), b as any))
+})
+
+// ---------------- account recovery (lost password AND passkey) ----------------
+app.post('/api/recovery/start', async (c) => {
+  const b = z.object({ username: z.string(), password: passwordIn, passkey: passkeyIn.optional() }).parse(await c.req.json())
+  return c.json(await startRecovery(b as any))
+})
+app.get('/api/recovery/:id', async (c) => c.json(await recoveryStatus(c.req.param('id'))))
+app.post('/api/recovery/cancel', requireSession, async (c) => c.json(await cancelRecovery(c.get('wallet'))))
 
 app.get('/api/username/:u', async (c) => c.json({ available: await usernameAvailable(c.req.param('u')) }))
 
@@ -185,6 +237,7 @@ app.post('/api/auth/verify', async (c) => {
       metadata: z.any().optional(),
       signature: z.object({ r: z.string(), s: z.string() }).optional(),
       keySignature: z.string().regex(/^0x[0-9a-fA-F]+$/).optional(),
+      credentialId: z.string().optional(),
     })
     .parse(await c.req.json())
   try {
@@ -235,7 +288,12 @@ app.get('/api/me', requireSession, async (c) => {
       attestationTx: a?.tx_hash ?? null,
       selfStatus: s?.status ?? null,
     },
-    line: l ? await lineView(l.id) : null,
+    line: l ? await (async () => {
+      await ensureRepayAccount(l.id).catch((e) => console.error('[me] repay address', e))
+      return lineView(l.id)
+    })() : null,
+    collateral: l && u?.role === 'borrower' ? await collateralView(wallet).catch(() => null) : null,
+    security: u ? await securityView(wallet) : null,
     guaranteeing,
   })
 })
@@ -261,26 +319,27 @@ app.get('/api/me/activity', requireSession, async (c) => {
                            WHERE p.line_id=${l.id} ORDER BY p.id DESC LIMIT 100`
   const movements = await sql`SELECT kind, amount, tx_hash, status, created_at FROM movements WHERE line_id=${l.id} ORDER BY created_at DESC LIMIT 100`
   const events = await sql`SELECT action, detail, tx_hash, created_at FROM audit_log WHERE line_id=${l.id} ORDER BY created_at DESC LIMIT 100`
-  return c.json({ spends, movements, events })
+  const charges = await sql`SELECT kind, amount, overdue, tx_hash, created_at FROM line_charges WHERE line_id=${l.id} ORDER BY created_at DESC LIMIT 100`
+  return c.json({ spends, movements, events, charges })
 })
 
 // ---------------- borrower line ----------------
 app.post('/api/lines/prepare', requireSession, async (c) => c.json(await prepareLine(c.get('wallet'))))
 
 // One-signature mandate: the borrower signs only the key authorization; KEYKARD verifies and activates it.
+const optionalKa = z.object({ keyAuthorization: z.string().regex(/^0x[0-9a-fA-F]+$/).optional() })
 app.post('/api/lines/:id/mandate', requireSession, async (c) => {
-  const { keyAuthorization } = z.object({ keyAuthorization: z.string().regex(/^0x[0-9a-fA-F]+$/) }).parse(await c.req.json())
+  const { keyAuthorization } = optionalKa.parse(await c.req.json())
   const wallet = c.get('wallet')
   const [row] = await sql`SELECT * FROM lines WHERE id=${c.req.param('id')} AND borrower_wallet=${wallet} AND status='preparing'`
   if (!row) throw new UserError('line not found', 404)
-  const ka = checkKeyAuthorization(keyAuthorization as Hex, {
+  const tx = await acceptGrant({
+    owner: wallet,
     keyId: row.repay_key_id,
-    expiry: Math.floor(new Date(row.term_end).getTime() / 1000),
-    limit: BigInt(row.mandate_cap),
-    period: row.period_seconds,
-    recipients: [treasury.address],
+    sealedKey: row.repay_key_enc,
+    keyAuthorization: keyAuthorization as Hex | undefined,
+    expect: { expiry: Math.floor(new Date(row.term_end).getTime() / 1000), limit: BigInt(row.mandate_cap), period: row.period_seconds, recipients: [treasury.address] },
   })
-  const tx = await activateKeyAuthorization({ owner: wallet, keyId: row.repay_key_id, sealedKey: row.repay_key_enc, ka })
   await audit({ lineId: row.id, actor: 'borrower', action: 'mandate.signed', txHash: tx })
   return c.json({ ok: true, tx })
 })
@@ -291,10 +350,25 @@ app.post('/api/lines/pay-now', requireSession, async (c) => {
   await maybeUnfreeze(c.get('wallet'))
   return c.json(v)
 })
+// ---- secured line (1:1 collateral in the CollateralVault) ----
+const usdAmount = z.object({ amount: z.string().regex(/^\d+$/) })
+app.post('/api/collateral/prepare', requireSession, async (c) => {
+  const { amount } = usdAmount.parse(await c.req.json())
+  return c.json(await prepareCollateral(c.get('wallet'), BigInt(amount)))
+})
+app.post('/api/collateral/confirm', requireSession, async (c) => {
+  const { amount, keyAuthorization } = usdAmount.extend({ keyAuthorization: z.string().regex(/^0x[0-9a-fA-F]+$/).optional() }).parse(await c.req.json())
+  return c.json(await confirmCollateral(c.get('wallet'), BigInt(amount), keyAuthorization as Hex | undefined))
+})
+app.post('/api/collateral/release', requireSession, async (c) => {
+  const { amount } = usdAmount.parse(await c.req.json())
+  return c.json(await releaseCollateral(c.get('wallet'), BigInt(amount)))
+})
+
 app.post('/api/lines/mandate/renew', requireSession, async (c) => c.json(await renewMandate(c.get('wallet'))))
 app.post('/api/lines/mandate/renew/confirm', requireSession, async (c) => {
-  const { keyAuthorization } = z.object({ keyAuthorization: z.string().regex(/^0x[0-9a-fA-F]+$/) }).parse(await c.req.json())
-  return c.json(await confirmRenewMandate(c.get('wallet'), keyAuthorization as Hex))
+  const { keyAuthorization } = optionalKa.parse(await c.req.json())
+  return c.json(await confirmRenewMandate(c.get('wallet'), keyAuthorization as Hex | undefined))
 })
 
 app.post('/api/lines/:id/open', requireSession, async (c) =>
@@ -315,19 +389,18 @@ app.post('/api/guarantee/:id/prepare', requireSession, async (c) => {
 })
 
 app.post('/api/guarantee/:id/key', requireSession, async (c) => {
-  const { keyAuthorization } = z.object({ keyAuthorization: z.string().regex(/^0x[0-9a-fA-F]+$/) }).parse(await c.req.json())
+  const { keyAuthorization } = optionalKa.parse(await c.req.json())
   const wallet = c.get('wallet')
   const [inv] = await sql`SELECT i.*, l.term_end FROM guarantee_invites i JOIN lines l ON l.id=i.line_id
                           WHERE i.id=${c.req.param('id')} AND i.guarantor_wallet=${wallet} AND i.status='prepared'`
   if (!inv) throw new UserError('invite not prepared for you', 404)
-  const ka = checkKeyAuthorization(keyAuthorization as Hex, {
+  const tx = await acceptGrant({
+    owner: wallet,
     keyId: inv.guar_key_id,
-    expiry: Math.floor(new Date(inv.term_end).getTime() / 1000),
-    limit: BigInt(inv.cap),
-    period: 0,
-    recipients: [treasury.address],
+    sealedKey: inv.guar_key_enc,
+    keyAuthorization: keyAuthorization as Hex | undefined,
+    expect: { expiry: Math.floor(new Date(inv.term_end).getTime() / 1000), limit: BigInt(inv.cap), period: 0, recipients: [treasury.address] },
   })
-  const tx = await activateKeyAuthorization({ owner: wallet, keyId: inv.guar_key_id, sealedKey: inv.guar_key_enc, ka })
   return c.json({ ok: true, tx })
 })
 

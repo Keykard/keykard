@@ -25,8 +25,8 @@ export async function storeBackup(p: { username: string; wallet: Address; authPr
   if (!/^[0-9a-f]{64}$/.test(p.authProof)) throw new UserError('invalid login proof')
   const salt = randomBytes(16).toString('hex')
   try {
-    await sql`INSERT INTO password_logins (username, wallet, vault, auth_salt, auth_hash)
-              VALUES (${username}, ${p.wallet.toLowerCase()}, ${sql.json(p.vault as any)}, ${salt}, ${hash(p.authProof, salt)})`
+    await sql`INSERT INTO password_logins (username, wallet, vault, auth_salt, auth_hash, key_id)
+              VALUES (${username}, ${p.wallet.toLowerCase()}, ${sql.json(p.vault as any)}, ${salt}, ${hash(p.authProof, salt)}, ${p.wallet.toLowerCase()})`
   } catch (e: any) {
     if (String(e?.code) === '23505') throw new UserError('that username is taken', 409)
     throw e
@@ -50,7 +50,8 @@ export async function fetchVault(p: { username: string; authProof: string }) {
     throw new UserError('wrong username or password', 401)
   }
   await sql`UPDATE password_logins SET failed_attempts=0, locked_until=NULL WHERE username=${username}`
-  return { wallet: r.wallet as Address, vault: r.vault }
+  // keyId: the key this vault holds (the wallet's root for older accounts, an admin key after a reset)
+  return { wallet: r.wallet as Address, keyId: (r.key_id ?? r.wallet) as Address, vault: r.vault }
 }
 
 export { mintSession }

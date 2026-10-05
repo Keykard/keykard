@@ -13,16 +13,26 @@ const STEPS = [
   { k: 'how-1', n: '01', title: 'Get a limit.', body: 'Verified in minutes, your first line starts at $20. No collateral, no deposit, no credit history needed.', extra: 'how-1b' },
   { k: 'how-2', n: '02', title: 'Tap to pay.', body: 'Pay any KEYKARD merchant with Face ID, a password on any device, or by tapping a physical NFC card.' },
   { k: 'how-3', n: '03', title: 'Auto-pay, capped by the chain.', body: 'You sign one permission: at most one bill per period, and only to KEYKARD. Tempo enforces the cap, so we physically can’t take more. Revoke it any time.' },
-  { k: 'how-4', n: '04', title: 'Pay on time, grow.', body: 'Two on-time bills in a row raise your limit: $20 → $50 → $100. Every payment builds a credit file that belongs to you.' },
+  { k: 'how-4', n: '04', title: 'Pay on time, grow.', body: 'Two on-time bills in a row raise your limit: $20 → $50 → $100. Need more now? Lock stablecoins as collateral and your limit grows 1:1. Every payment builds a credit file that belongs to you.' },
+]
+
+/** After the hackathon: from stablecoin credit to everyday money. Plans, not shipped features. */
+const ROADMAP = [
+  ['Now', 'Live on Tempo testnet', 'Stablecoin credit lines, KEYKARD merchants, a tap-to-pay NFC card, family backup, 1:1 secured limits and repayment from any wallet or exchange.'],
+  ['Next', 'Mainnet, real dollars', 'USDC on Tempo mainnet with small, capped limits. Repay from exchanges that already support Tempo, or from any wallet.'],
+  ['Then', 'Crypto in, cash out', 'Licensed on- and off-ramp partners: top up and repay from a bank account or cash, and merchants are paid out in their local currency.'],
+  ['After', 'Any card terminal', 'A virtual and physical KEYKARD on a global card network through an issuing partner, so it works wherever cards do, with the same on-chain limits.'],
 ]
 
 const FAQ = [
   ['Is this real money?', 'KEYKARD runs on Tempo with real stablecoins. The pilot is live on Tempo testnet with small limits while we finish mainnet launch.'],
   ['Can KEYKARD take more than I agreed?', 'No. The auto-pay permission is scoped on-chain: one bill per period, capped, and payable only to KEYKARD. The Tempo protocol rejects anything else, even from us.'],
-  ['Do you see my passport?', 'No. Self proves you are a unique, real person with a zero-knowledge check of your passport chip. We receive a proof, never the document.'],
-  ['What happens if I miss a payment?', 'Your card pauses and the app shows exactly what’s due and the deadline. If a family member backs you, they’re told first. Past the deadline it’s recorded on your public credit file, and paying it settles your record.'],
+  ['How do you verify who I am (KYC)?', 'With Self. You tap your passport’s chip on your phone and Self proves, with zero knowledge, that the passport is genuine and government-issued, that you are over 18, not on a sanctions list, and one unique person. We receive the proof, never the document. That check is what lets us lend without a bank account or a credit score.'],
+  ['What happens if I miss a payment?', 'Your card pauses and the app shows exactly what’s due and the deadline. A missed bill costs a $1 late fee, then 2% of the overdue amount each billing period, never more than 25% of it in total; family backups never pay fees. Past the deadline it’s recorded on your public credit file, and paying it settles your record. The terms are published on-chain.'],
+  ['Can I borrow more?', 'Yes. Pay on time and your limit climbs on its own. To go higher straight away, lock stablecoins as collateral and your limit grows 1:1. The collateral sits in an on-chain vault; KEYKARD can only take it after a default, and only what you owe.'],
+  ['Can I repay from an exchange or another wallet?', 'Yes. Every card has its own repayment address. Send stablecoins on Tempo to it from an exchange, any wallet or a family member and it’s applied within seconds, even if auto-pay is off.'],
   ['Where can I pay?', 'Today: any KEYKARD merchant, and anyone can become one in a minute. Next: any card terminal, through a card-network partner, with the shop paid in local currency.'],
-  ['Are there fees?', 'No. KEYKARD sponsors every network fee, so your card never pays gas.'],
+  ['Are there fees?', 'Not if you pay on time. KEYKARD sponsors every network fee, so your card never pays gas. Only a missed bill costs anything, and the cap is published on-chain.'],
 ]
 
 export default function Home() {
@@ -37,7 +47,7 @@ export default function Home() {
             <Reveal as="p" className="kc-kicker" onLoad>Stablecoin credit · on Tempo</Reveal>
             <Reveal as="h1" className="kc-h1" onLoad delay={0.1} id="hero-title">Credit without the bank.</Reveal>
             <Reveal as="p" className="kc-lede" onLoad delay={0.25}>
-              A credit card for people no bank will score. No collateral. No fees. Every rule enforced by the blockchain, not by us.
+              A credit card for people no bank will score. No collateral needed. Free if you pay on time. Every rule enforced by the blockchain, not by us.
             </Reveal>
             <Rise className="kc-cta" delay={0.4}>
               <Magnetic href="/start">Get your card</Magnetic>
@@ -60,10 +70,10 @@ export default function Home() {
         <section id="verify" className="kc-split kc-split--right kc-scene" aria-labelledby="verify-title">
           <K k="verify" />
           <div className="kc-copy">
-            <Reveal as="p" className="kc-kicker">01 · Identity</Reveal>
+            <Reveal as="p" className="kc-kicker">01 · Identity · KYC</Reveal>
             <Reveal as="h2" className="kc-h2" id="verify-title">Prove you’re human. Not who you are.</Reveal>
             <Reveal as="p" className="kc-body">
-              Scan your passport’s chip with the Self app. KEYKARD learns one thing: you’re a unique, real person. No documents stored, no face on our servers, one line per human.
+              Our KYC is a zero-knowledge passport check with Self. Tap your passport’s chip and Self proves it’s genuine and government-issued, that you’re over 18, not on a sanctions list, and one unique person. No documents stored, no face on our servers, one line per human.
             </Reveal>
           </div>
         </section>
@@ -172,12 +182,12 @@ export default function Home() {
 
         {/* 9 · No fees */}
         <section className="kc-fees" aria-labelledby="fees-title">
-          <Reveal as="h2" className="kc-mega" id="fees-title">No fees. Not even gas.</Reveal>
+          <Reveal as="h2" className="kc-mega" id="fees-title">Pay on time, pay nothing. Not even gas.</Reveal>
           <div className="kc-marquee" aria-hidden>
             <div>
               {Array.from({ length: 2 }).map((_, j) => (
                 <span key={j}>
-                  Sponsored gas <i /> Public credit file <i /> Face ID or password <i /> No collateral <i /> Auto-pay you can revoke <i /> Family backup <i /> Tap-to-pay NFC card <i />
+                  Sponsored gas <i /> Public credit file <i /> Zero-knowledge KYC <i /> Face ID or password <i /> No collateral needed <i /> 1:1 secured limits <i /> Repay from any wallet <i /> Auto-pay you can revoke <i /> Family backup <i /> Tap-to-pay NFC card <i />
                 </span>
               ))}
             </div>
@@ -192,6 +202,22 @@ export default function Home() {
             <LiveStats />
           </Rise>
           <Link href="/stats" className="kc-link">See the public credit file →</Link>
+        </section>
+
+        {/* 10b · Roadmap */}
+        <section id="roadmap" className="kc-road" aria-labelledby="road-title">
+          <K k="road" />
+          <Reveal as="p" className="kc-kicker">After the hackathon</Reveal>
+          <Reveal as="h2" className="kc-h2" id="road-title">From stablecoins to everyday money.</Reveal>
+          <ol className="kc-road__list">
+            {ROADMAP.map(([when, title, body]) => (
+              <li key={when}>
+                <span className="kc-road__when">{when}</span>
+                <h3 className="kc-h3">{title}</h3>
+                <p className="kc-body">{body}</p>
+              </li>
+            ))}
+          </ol>
         </section>
 
         {/* 11 · FAQ */}

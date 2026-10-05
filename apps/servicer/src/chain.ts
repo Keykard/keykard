@@ -2,7 +2,7 @@ import { createClient, http, type Address, type Hex } from 'viem'
 import { getBlockNumber, getLogs, readContract, waitForTransactionReceipt, writeContract } from 'viem/actions'
 import { parseAbiItem } from 'viem'
 import { Abis, Account, Actions } from 'viem/tempo'
-import { ACCOUNT_KEYCHAIN, keycardRegistryAbi, lineBookAbi } from '@keycard/sdk'
+import { ACCOUNT_KEYCHAIN, collateralVaultAbi, creditTermsAbi, keycardRegistryAbi, lineBookAbi } from '@keycard/sdk'
 import { keys, net } from './config'
 
 export const chain = net.chain.extend({ feeToken: net.feeToken })
@@ -109,27 +109,40 @@ export async function verifyKeyPolicy(p: {
 
 // ---------------- KEYKARD contracts ----------------
 
+/** RPC rate limits reject a write BEFORE it is broadcast, so only those are retried (never a sent tx). */
+const rateLimited = (e: any) => /rate limit|429|exceeds defined limit/i.test(String(e?.details ?? e?.shortMessage ?? e?.message ?? e))
+export async function sendWithBackoff<T>(send: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await send()
+    } catch (e) {
+      if (!rateLimited(e) || attempt >= 6) throw e
+      await new Promise((r) => setTimeout(r, 300 * 2 ** attempt))
+    }
+  }
+}
+
 export async function lineBookWrite(functionName: string, args: readonly unknown[]) {
-  const hash = await writeContract(clientFor(servicer), {
+  const hash = await sendWithBackoff(() => writeContract(clientFor(servicer), {
     address: net.lineBook!,
     abi: lineBookAbi,
     functionName,
     args,
     feePayer: treasury,
-  } as any)
+  } as any))
   const receipt = await waitForTransactionReceipt(publicClient, { hash })
   if (receipt.status !== 'success') throw new Error(`LineBook.${functionName} reverted ${hash}`)
   return receipt
 }
 
 export async function registryWrite(functionName: string, args: readonly unknown[], as: 'attester' | 'owner' = 'attester') {
-  const hash = await writeContract(clientFor(as === 'attester' ? attester : treasury), {
+  const hash = await sendWithBackoff(() => writeContract(clientFor(as === 'attester' ? attester : treasury), {
     address: net.registry!,
     abi: keycardRegistryAbi,
     functionName,
     args,
     ...(as === 'attester' ? { feePayer: treasury } : {}),
-  } as any)
+  } as any))
   const receipt = await waitForTransactionReceipt(publicClient, { hash })
   if (receipt.status !== 'success') throw new Error(`KeycardRegistry.${functionName} reverted ${hash}`)
   return receipt
@@ -170,4 +183,30 @@ export async function findMemoTransfer(p: { from: Address; to: Address; memo: He
 
 export async function lineBookRead<T>(functionName: string, args: readonly unknown[]): Promise<T> {
   return (await readContract(publicClient, { address: net.lineBook!, abi: lineBookAbi, functionName, args } as any)) as T
+}
+
+// ---------------- CreditTerms (pricing for missed payments) + CollateralVault (secured lines) ----------------
+
+export async function termsWrite(functionName: string, args: readonly unknown[]) {
+  if (!net.creditTerms) throw new Error('CreditTerms not deployed')
+  const hash = await sendWithBackoff(() => writeContract(clientFor(servicer), { address: net.creditTerms!, abi: creditTermsAbi, functionName, args, feePayer: treasury } as any))
+  const receipt = await waitForTransactionReceipt(publicClient, { hash })
+  if (receipt.status !== 'success') throw new Error(`CreditTerms.${functionName} reverted ${hash}`)
+  return receipt
+}
+
+export async function termsRead<T>(functionName: string, args: readonly unknown[] = []): Promise<T> {
+  return (await readContract(publicClient, { address: net.creditTerms!, abi: creditTermsAbi, functionName, args } as any)) as T
+}
+
+export async function vaultWrite(functionName: string, args: readonly unknown[]) {
+  if (!net.collateralVault) throw new Error('CollateralVault not deployed')
+  const hash = await sendWithBackoff(() => writeContract(clientFor(servicer), { address: net.collateralVault!, abi: collateralVaultAbi, functionName, args, feePayer: treasury } as any))
+  const receipt = await waitForTransactionReceipt(publicClient, { hash })
+  if (receipt.status !== 'success') throw new Error(`CollateralVault.${functionName} reverted ${hash}`)
+  return receipt
+}
+
+export async function vaultRead<T>(functionName: string, args: readonly unknown[] = []): Promise<T> {
+  return (await readContract(publicClient, { address: net.collateralVault!, abi: collateralVaultAbi, functionName, args } as any)) as T
 }

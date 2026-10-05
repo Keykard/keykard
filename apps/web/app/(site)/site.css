@@ -139,6 +139,16 @@ html.lenis, html.lenis body { height: auto; }
 @keyframes kc-marquee { to { transform: translateX(-50%); } }
 
 .kc-live { padding: 120px max(24px, 7vw); }
+.kc-road { position: relative; padding: 120px max(24px, 7vw) 40px; }
+.kc-road__list { list-style: none; margin: 48px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--kc-hairline); }
+.kc-road__list li { padding: 28px 28px 0 0; }
+.kc-road__list li + li { padding-left: 28px; border-left: 1px solid var(--kc-hairline); }
+.kc-road__when { font: 500 12px/1 var(--font-mono-stack); letter-spacing: 0.16em; text-transform: uppercase; color: var(--kc-accent-hi); }
+.kc-road__list .kc-h3 { margin: 16px 0 10px; }
+@media (max-width: 900px) {
+  .kc-road__list { grid-template-columns: 1fr; }
+  .kc-road__list li, .kc-road__list li + li { padding: 24px 0; border-left: 0; border-bottom: 1px solid var(--kc-hairline); }
+}
 .kc-faq { padding: 120px max(24px, 7vw); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 6vw; align-items: start; }
 .kc-faq__list details { border-top: 1px solid var(--kc-hairline); padding: 24px 0; }
 .kc-faq__list details:last-child { border-bottom: 1px solid var(--kc-hairline); }

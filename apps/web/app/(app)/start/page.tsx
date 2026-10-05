@@ -62,7 +62,7 @@ export default function Start() {
   return (
     <main className="wrap">
       <h1>Get your KEYKARD</h1>
-      <p className="muted small">A minute, no documents stored, no fees.</p>
+      <p className="muted small">A minute. No documents stored. Free if you pay on time.</p>
       {!me && <Onboard role="borrower" onReady={onReady} />}
       {me && <AccountBar me={me} />}
       {me && me.user?.role !== 'borrower' && <WrongAccount me={me} want="cardholder" here="Getting a KEYKARD" />}

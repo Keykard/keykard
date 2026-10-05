@@ -9,7 +9,11 @@
   "servicer": "0xfD159a4656014Ae65Bef45FBe9BC432efFD839af",
   "txs": {
     "registry": "0x8476ce89e40fe98c795d46d357ddc27c1b320f3732191d06982b02af80c5fa6f",
-    "lineBook": "0x377e3209b7fa3cd9fcdbd240bf75481e46498e69ca9201c88e89c98c55e23703"
+    "lineBook": "0x377e3209b7fa3cd9fcdbd240bf75481e46498e69ca9201c88e89c98c55e23703",
+    "creditTerms": "0x152874cd654536d1bc4d772ae895d24ef33f4186957b20b0da932b60f2e08187",
+    "collateralVault": "0x704a3fec59389b1a4c5dd39a03b16639e55ac8c8c672a2a8abc0e0fcec1ef278"
   },
-  "deployedAt": "2026-09-28T16:44:43.767Z"
+  "deployedAt": "2026-09-28T16:44:43.767Z",
+  "creditTerms": "0x666a756768cdb183523d9fb1151b038e9d136506",
+  "collateralVault": "0x2b273f09a4305ed94d3b21d1d69a55cf7bb60463"
 }
