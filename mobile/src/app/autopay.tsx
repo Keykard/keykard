@@ -105,9 +105,9 @@ export default function Autopay() {
       )}
 
       <Panel>
-        <Text v="h3">Repay from any wallet</Text>
-        <Text v="small" style={{ marginTop: 4 }}>Pay from an exchange, another wallet or family, even with auto-pay off.</Text>
-        <Button title="Show my repayment address" kind="ghost" small style={{ marginTop: 12 }} onPress={() => router.push('/repay')} />
+        <Text v="h3">Pay from anywhere</Text>
+        <Text v="small" style={{ marginTop: 4 }}>Send money to your KEYKARD wallet from an exchange, another wallet or family. Bills are paid from it, and anything overdue is collected as soon as it arrives.</Text>
+        <Button title="Add money" kind="ghost" small style={{ marginTop: 12 }} onPress={() => router.push('/add-money')} />
       </Panel>
 
       {err && <Banner kind="error">{err}</Banner>}

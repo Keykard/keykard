@@ -10,6 +10,7 @@ import { seizeCollateralOnDefault } from './collateral'
 import { applyExternalRepayments } from './repay'
 import { withLine } from './linelock'
 import { completeRecoveries } from './recovery'
+import { autoCollectDefaulted } from './lifecycle'
 
 /**
  * Line economics (0% if you pay on time; a missed bill is priced by CreditTerms, see charges.ts):
@@ -264,6 +265,7 @@ export async function tick() {
     await applyExternalRepayments().catch((e) => console.error('external repayments failed', e))
     await accruePenalties().catch((e) => console.error('penalties failed', e))
     await completeRecoveries().catch((e) => console.error('recoveries failed', e))
+    await autoCollectDefaulted().catch((e) => console.error('default auto-collect failed', e))
     const overdue = await sql`
       SELECT id FROM lines WHERE status='grace' OR (status='frozen' AND grace_until IS NOT NULL AND amount_due > 0)
       ORDER BY grace_until LIMIT 50`

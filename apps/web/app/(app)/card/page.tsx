@@ -11,7 +11,7 @@ import { StartOver } from '@/components/StartOver'
 import { PhysicalCard } from '@/components/PhysicalCard'
 import { LineStatus } from '@/components/LineStatus'
 import { UsernameBanner } from '@/components/UsernameBanner'
-import { RepayAnywhere, TermsNote } from '@/components/RepayAnywhere'
+import { TermsNote } from '@/components/TermsNote'
 import { Secured } from '@/components/Secured'
 import { SecureNudge, SecurityPanel } from '@/components/Security'
 import { MERCHANT_CODE_RE } from '@keycard/sdk'
@@ -142,7 +142,7 @@ export default function CardPage() {
   const REPAID: Record<string, [string, string]> = {
     INST: ['Auto-pay', 'Bill paid'],
     GUAR: ['Paid by your family backup', 'Covered a missed bill'],
-    EXT: ['Repaid from another wallet', 'Sent to your repayment address'],
+    EXT: ['Repaid from another wallet', 'Applied to your bill'],
     SEIZE: ['Covered by your collateral', 'After the default, from the vault'],
   }
   const tierIdx = cfg.tiers.reduce((i: number, t: any, k: number) => (BigInt(line.unsecuredLimit ?? line.limit ?? '0') >= BigInt(t) ? k : i), 0)
@@ -266,8 +266,6 @@ export default function CardPage() {
         <p className="small muted">Two on-time bills in a row move you up a step.</p>
         <TermsNote cfg={cfg} />
       </section>
-
-      <RepayAnywhere line={line} cfg={cfg} />
 
       <Secured line={line} collateral={me?.collateral} cfg={cfg} walletBal={walletBal} onChange={load} />
 

@@ -42,7 +42,6 @@ export function LineStatus({ line, walletBal, onChange }: { line: any; walletBal
   // the borrowed amount, plus any fees from a missed bill (paid in that order)
   const payable = (line.status === 'defaulted' ? due : owed > due ? owed : due) + fees
   const feeNote = fees > 0n && <> (includes <b>{usd(fees)}</b> in late fees)</>
-  const elsewhere = line.repayAccount && <p className="small">Or send it from any wallet or exchange: <a href="#repay-anywhere">your repayment address ↓</a></p>
   const short = walletBal !== null && payable > walletBal ? payable - walletBal : 0n
 
   const act = (label: string, fn: () => Promise<unknown>, done: string) => async () => {
@@ -108,7 +107,6 @@ export function LineStatus({ line, walletBal, onChange }: { line: any; walletBal
         {fees > 0n && <> A late fee applies, and interest is added each period it stays overdue: you now owe <b>{usd(payable)}</b>{feeNote}.</>}
         {lowBalance}
         <div style={{ marginTop: 8 }}>{line.mandateActive ? <PayBtn label={`Pay ${usd(payable)} now`} /> : <RenewBtn />}</div>
-        {elsewhere}
       </div>
     )
   } else if (line.status === 'frozen') {
@@ -134,7 +132,7 @@ export function LineStatus({ line, walletBal, onChange }: { line: any; walletBal
           {line.mandateActive && payable > 0n && <PayBtn label={`Pay ${usd(payable)} now`} />}
           {line.freezeReason === 'MissedPayment' && <span className="small">Settle with your guarantor, then contact KEYKARD to reopen.</span>}
         </div>
-        {payable > 0n && elsewhere}
+
       </div>
     )
   } else if (line.status === 'defaulted') {
@@ -146,7 +144,6 @@ export function LineStatus({ line, walletBal, onChange }: { line: any; walletBal
         <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
           {line.mandateActive ? <PayBtn label={`Pay ${usd(payable)} to settle`} /> : <RenewBtn />}
         </div>
-        {elsewhere}
       </div>
     )
   } else if (line.status === 'settled') {

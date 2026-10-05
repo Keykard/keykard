@@ -35,7 +35,8 @@ export default function AddMoney() {
     <Screen>
       <Link title="‹ Back" style={{ marginTop: 6 }} onPress={() => router.back()} />
       <Text v="h1" style={{ marginTop: 18 }}>Add money</Text>
-      <Text style={{ marginTop: 6 }}>Bills are paid from this wallet. Balance: <Text style={{ color: color.text, fontFamily: 'Geist_600SemiBold' }}>{bal === null ? '—' : usd(bal)}</Text></Text>
+      <Text style={{ marginTop: 6 }}>Your KEYKARD wallet: your money, and where your bills are paid from. Balance: <Text style={{ color: color.text, fontFamily: 'Geist_600SemiBold' }}>{bal === null ? '—' : usd(bal)}</Text></Text>
+      <Text v="small" style={{ marginTop: 6 }}>To pay your bill, send money here from an exchange, another wallet or a family member. Anything overdue is paid as soon as it arrives (auto-pay must be on).</Text>
 
       <Panel style={{ alignItems: 'center' }}>
         <Text v="eyebrow">Send {cfg.tokenSymbol} on Tempo</Text>

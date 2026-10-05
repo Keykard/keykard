@@ -24,7 +24,7 @@ type Activity = {
 const REPAID: Record<string, [string, string]> = {
   INST: ['Auto-pay', 'Bill paid'],
   GUAR: ['Paid by your family backup', 'Covered a missed bill'],
-  EXT: ['Repaid from another wallet', 'Sent to your repayment address'],
+  EXT: ['Repaid from another wallet', 'Applied to your bill'],
   SEIZE: ['Covered by your collateral', 'After the default, from the vault'],
 }
 
@@ -139,7 +139,6 @@ export default function Home() {
         </Panel>
 
         <Panel>
-          <ListRow icon="⇣" title="Repay from any wallet" sub="Exchange, another wallet or family" onPress={() => router.push('/repay')} />
           {['active', 'grace', 'frozen'].includes(line.status) && <ListRow icon="▣" title="A bigger limit" sub={BigInt(line.secured ?? '0') > 0n ? `${usd(line.secured)} secured by your collateral` : 'Lock collateral 1:1, spend more'} onPress={() => router.push('/secured')} />}
         </Panel>
 

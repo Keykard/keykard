@@ -64,13 +64,6 @@ export function LineStatus({ line, walletBal, onChange }: { line: Line; walletBa
       </Text>
     ) : null
 
-  const Elsewhere = () =>
-    line.repayAccount && payable > 0n ? (
-      <Text v="small" style={{ marginTop: 10 }}>
-        Or send it from any wallet or exchange: <Text v="small" style={{ color: color.accentHi }} onPress={() => router.push('/repay')}>your repayment address ›</Text>
-      </Text>
-    ) : null
-
   const nextIn = until(line.nextDue, now)
   const graceIn = until(line.graceUntil, now)
   let body: React.ReactNode = null
@@ -95,7 +88,6 @@ export function LineStatus({ line, walletBal, onChange }: { line: Line; walletBa
         </Text>
         <Low />
         {line.mandateActive ? <PayBtn label={`Pay ${usd(payable)} now`} /> : <RenewBtn />}
-        <Elsewhere />
       </Banner>
     )
   } else if (line.status === 'frozen') {
@@ -114,7 +106,6 @@ export function LineStatus({ line, walletBal, onChange }: { line: Line; walletBa
         {line.freezeReason === 'MandateRevoked' && !line.mandateActive && <RenewBtn />}
         {line.mandateActive && payable > 0n && <PayBtn label={`Pay ${usd(payable)} now`} />}
         {line.freezeReason === 'MissedPayment' && <Text v="small" style={{ marginTop: 8 }}>Settle with your family backup, then contact KEYKARD to reopen.</Text>}
-        <Elsewhere />
       </Banner>
     )
   } else if (line.status === 'defaulted') {
@@ -126,7 +117,6 @@ export function LineStatus({ line, walletBal, onChange }: { line: Line; walletBa
         </Text>
         <Low />
         {line.mandateActive ? <PayBtn label={`Pay ${usd(payable)} to settle`} /> : <RenewBtn />}
-        <Elsewhere />
       </Banner>
     )
   } else if (line.status === 'settled') {

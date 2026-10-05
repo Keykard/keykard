@@ -19,7 +19,6 @@ import { getMerchant, merchantDashboard, registerMerchant } from './merchants'
 import { settlement, publicClient } from './chain'
 import { Actions } from 'viem/tempo'
 import { publishedTerms } from './charges'
-import { ensureRepayAccount } from './repay'
 import { collateralView, confirmCollateral, prepareCollateral, releaseCollateral } from './collateral'
 import { accountInfo, changePassword, confirmChange, prepareChange, securityView } from './credentials'
 import { cancelRecovery, recoveryStatus, startRecovery } from './recovery'
@@ -288,10 +287,7 @@ app.get('/api/me', requireSession, async (c) => {
       attestationTx: a?.tx_hash ?? null,
       selfStatus: s?.status ?? null,
     },
-    line: l ? await (async () => {
-      await ensureRepayAccount(l.id).catch((e) => console.error('[me] repay address', e))
-      return lineView(l.id)
-    })() : null,
+    line: l ? await lineView(l.id) : null,
     collateral: l && u?.role === 'borrower' ? await collateralView(wallet).catch(() => null) : null,
     security: u ? await securityView(wallet) : null,
     guaranteeing,

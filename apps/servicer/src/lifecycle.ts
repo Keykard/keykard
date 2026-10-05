@@ -3,7 +3,7 @@ import { generatePrivateKey } from 'viem/accounts'
 import { Account } from 'viem/tempo'
 import { BORROWER_FLAGS, mandateKeyPolicy } from '@keycard/sdk'
 import { net } from './config'
-import { lineBookWrite, registryWrite, tokenBalance, treasury } from './chain'
+import { getKey, lineBookWrite, registryWrite, tokenBalance, treasury } from './chain'
 import { audit, sql } from './db'
 import { UserError, applyLimits, lineView } from './lines'
 import { acceptGrant } from './keyauth'
@@ -73,6 +73,27 @@ async function payNowLocked(wallet: Address) {
     if (leftDue === 0n) await cureOverdue(row)
   }
   return lineView(row.id)
+}
+
+/**
+ * One wallet for everything: a borrower who is in default repays by simply sending money to their own KEYKARD wallet.
+ * As soon as it lands, collect what's owed through the auto-pay permission (grace-period lines are already retried
+ * every tick by the scheduler). Lines whose auto-pay is off wait until it's turned back on.
+ */
+export async function autoCollectDefaulted() {
+  const rows = await sql`SELECT id, borrower_wallet, repay_key_id FROM lines
+                         WHERE status='defaulted' AND (amount_due > 0 OR fees_due > 0) ORDER BY updated_at LIMIT 20`
+  for (const r of rows) {
+    try {
+      if ((await tokenBalance(r.borrower_wallet)) === 0n) continue
+      const k = await getKey(r.borrower_wallet, r.repay_key_id)
+      if (!k.exists || k.revoked) continue
+      await payNow(r.borrower_wallet)
+      await audit({ lineId: r.id, actor: 'servicer', action: 'repaid.auto_after_default' })
+    } catch (e: any) {
+      if (!/could not collect|nothing to pay|owe nothing/i.test(String(e?.message))) console.error('[default] auto-collect failed', r.id, e?.message ?? e)
+    }
+  }
 }
 
 /** A defaulted line settles once both the borrowed amount and the fees are paid. */

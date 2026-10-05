@@ -160,23 +160,17 @@ async function feesAndExternalRepay(settle: Address, code: string) {
   const [ch] = await sql`SELECT count(*)::int AS n FROM line_charges WHERE line_id=${x.lineId}`
   check('A: both charges recorded with on-chain receipts', ch.n === 2)
 
-  const repayTo = pen!.line.repayAccount as Address
-  check('A: line has its own repayment address', /^0x[0-9a-f]{40}$/.test(repayTo ?? ''))
+  // one wallet: someone else sends money to the borrower's OWN KEYKARD wallet; the overdue bill is collected from it
   const f = funder()
   await fund(f.acct.address)
   const total = BigInt(pen!.line.totalDue)
-  const before = await bal(x.wallet)
   const sent = total + u('0.5')
-  const t = (await rl(() => Actions.token.transferSync(f.client, { token: net.token, to: repayTo, amount: sent } as any))) as any
-  check(`A: a different wallet sent ${toUsd(sent)} to the repayment address`, t.receipt.status === 'success')
+  const t = (await rl(() => Actions.token.transferSync(f.client, { token: net.token, to: x.wallet, amount: sent } as any))) as any
+  check(`A: a different wallet sent ${toUsd(sent)} to the borrower’s KEYKARD wallet`, t.receipt.status === 'success')
   const cured = await waitFor('A cured', async () => { const m = await me(x.token); return m.line.status === 'active' && m.line.totalDue === '0' ? m : null }, 120)
-  check('A: line cured, nothing due, no fees due', Boolean(cured), `status=${cured?.line.status} spendable=${cured?.line.spendable}`)
+  check('A: overdue bill collected automatically, line cured, nothing due', Boolean(cured), `status=${cured?.line.status} spendable=${cured?.line.spendable}`)
   check('A: credit restored to the full limit', cured?.line.available === cured?.line.limit, `available=${cured?.line.available}`)
-  const [rep] = await sql`SELECT applied FROM external_repayments WHERE line_id=${x.lineId}`
-  const leftover = BigInt(rep?.applied?.leftover ?? -1)
-  const refunded = await waitFor('A refund', async () => ((await bal(x.wallet)) - before === leftover ? true : null), 60)
-  check('A: the extra went back to the borrower’s KEYKARD wallet', Boolean(refunded) && leftover > 0n, `leftover=${toUsd(leftover)}`)
-  check('A: fees booked as paid', cured?.line.feesPaid === pen?.line.feesDue || BigInt(cured?.line.feesPaid ?? 0) >= u('1.2'), `paid=${cured?.line.feesPaid}`)
+  check('A: fees booked as paid', BigInt(cured?.line.feesPaid ?? 0) >= u('1.2'), `paid=${cured?.line.feesPaid}`)
 }
 
 /** B: deposit collateral (one batched tx), limit +1:1, release part + withdraw, then default → vault covers it. */
@@ -229,9 +223,9 @@ async function securedAndDefault(settle: Address, code: string) {
   const f = funder()
   await fund(f.acct.address)
   const total = BigInt(d!.line.totalDue)
-  await rl(() => Actions.token.transferSync(f.client, { token: net.token, to: d!.line.repayAccount, amount: total + u('2') } as any))
+  await rl(() => Actions.token.transferSync(f.client, { token: net.token, to: x.wallet, amount: total + u('2') } as any))
   const st = await waitFor('B settled', async () => { const m = await me(x.token); return m.line.status === 'settled' ? m : null }, 150)
-  check('B: repaid from another wallet after default → settled', Boolean(st), `fees paid=${st?.line.feesPaid}`)
+  check('B: money sent to the wallet after default is collected automatically → settled', Boolean(st), `fees paid=${st?.line.feesPaid}`)
 }
 
 async function main() {
