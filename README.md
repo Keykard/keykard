@@ -16,15 +16,17 @@
 - **KYC without documents.** Identity comes from [Self](https://self.xyz). The user taps their passport's NFC chip and Self proves, in zero knowledge, that the passport is genuine and government-issued, the holder is over 18, not on a sanctions (OFAC) list, and one unique person (a nullifier binds one passport to one wallet). KEYKARD stores no documents. This check is what lets KEYKARD lend to people with no bank account or credit score; where a regulated partner needs more (e.g. name or date of birth), Self can disclose just those fields.
 - **Free if you pay on time; missed bills are priced on-chain.** The `CreditTerms` contract publishes the pricing: a $1 late fee per missed bill, then 2% of the overdue amount per billing period, all charges capped at 25% of it. The contract computes every charge and only for lines the public credit file shows as overdue or defaulted. Repayments clear the borrowed amount first, then fees. Family backups never pay fees.
 - **Repay from anywhere, one wallet.** Users send stablecoins to their own KEYKARD wallet from an exchange, another wallet or a family member. Auto-pay pays each bill from it, and an overdue or defaulted amount is collected as soon as money arrives.
+- **Rewards, paid for like a card network's.** Each card payment pays the shop's network fee (1% standard, set per shop by KEYKARD) and the cardholder gets 0.5% back out of it. Shops run their own offers ("10% back, up to $2, budget $50") from their dashboard; the cashback comes out of their payout and the budget is reserved atomically. Cashback pays down the bill first. Three on-time bills in a row earn a fee shield that cancels the next late fee. KEYKARD never pays out more than it earns.
 - **Bigger limits, secured 1:1.** A borrower can lock stablecoins in the `CollateralVault` and the limit grows by the same amount (lock $100, spend $100 more), on top of the unsecured tiers. KEYKARD can take collateral only after the line is Defaulted on LineBook (the vault checks) and never more than is locked; the rest is released back.
 - **A merchant network.** Anyone verified can become a merchant, get a code, a QR and a pay link, and accept tap-to-pay. The network settles merchants in USDC today. With a card-network partner, the same authorisation settles merchants in **fiat at any POS**; only the settlement leg changes.
 
 ## After the hackathon: crypto in, fiat out
 KEYKARD keeps going after Crypto World's Fair. Plans, in order; none of this is shipped yet:
 1. **Mainnet with real dollars:** USDC on Tempo mainnet with small, capped limits; repay from exchanges that support Tempo or from any wallet.
-2. **Fiat on- and off-ramps:** licensed partners so borrowers can top up and repay from a bank account or cash, and merchants are paid out in local currency.
-3. **Any card terminal:** a virtual and physical KEYKARD on a global card network through an issuing partner. Only the settlement leg changes; the on-chain limits, auto-pay cap and public credit file stay the same.
-4. **Fuller KYC where partners require it:** the same Self proof, disclosing only the extra fields a regulated partner asks for.
+2. **Collateral that earns:** secured-line collateral goes into a Tempo Earn vault (on mainnet, the "Ground Tempo gUSTB" vault already accepts USDC.e). Its withdrawals are queued, so KEYKARD would request the withdrawal at the first missed bill and give slightly under 1:1 limit as a buffer.
+3. **Fiat on- and off-ramps:** licensed partners so borrowers can top up and repay from a bank account or cash, and merchants are paid out in local currency.
+4. **Any card terminal:** a virtual and physical KEYKARD on a global card network through an issuing partner. Only the settlement leg changes; the on-chain limits, auto-pay cap and public credit file stay the same.
+5. **Fuller KYC where partners require it:** the same Self proof, disclosing only the extra fields a regulated partner asks for.
 
 ## Repository
 
@@ -82,6 +84,8 @@ TEMPO_NETWORK=testnet npx tsx test/e2e-edge.ts       # grace blocks phone+card, 
 TEMPO_NETWORK=testnet npx tsx test/e2e-auth.ts       # sign-up, password + passkey on one wallet, forgot password, lost passkey,
                                                      # lost both → passport recovery (RECOVERY_DELAY_SECONDS=20), recovery off
 npx tsx test/browser-auth.ts                         # the same sign-in screens in real Chromium with a virtual passkey
+TEMPO_NETWORK=testnet npx tsx test/e2e-rewards.ts    # fee split, 0.5% cashback, shop offer budget, pause, per-shop fee, fee shield
+                                                     # (run the servicer with PERIOD_SECONDS=60 GRACE_SECONDS=300)
 TEMPO_NETWORK=testnet npx tsx test/e2e-v2.ts         # late fee + penalty, repay from another wallet, 1:1 collateral, default → vault covers it
                                                      # (run the servicer with PERIOD_SECONDS=90 GRACE_SECONDS=200)
 USE_DEV_VERIFY=1 TEMPO_NETWORK=testnet npx tsx test/browser.ts   # real Chromium + virtual WebAuthn authenticator

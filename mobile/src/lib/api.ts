@@ -71,7 +71,8 @@ export type AppConfig = {
   devVerify?: boolean
   publicWebOrigin: string
   passkeyRpId: string
-  merchants: { code: string; label: string }[]
+  merchants: { code: string; label: string; offerPctBps?: number | null }[]
+  rewards?: { merchantFeeBps: number; baseCashbackBps: number; shieldEvery: number }
   creditTerms?: `0x${string}` | null
   collateralVault?: `0x${string}` | null
   /** Published pricing for missed payments, read from the CreditTerms contract. On time = 0%. */

@@ -3,6 +3,7 @@ import { creditTermsAbi } from '@keycard/sdk'
 import { net } from './config'
 import { termsRead, termsWrite } from './chain'
 import { audit, sql } from './db'
+import { useShieldOnMiss } from './rewards'
 
 /**
  * Pricing for missed payments. Paying on time costs nothing. A missed bill costs one late fee, then penalty
@@ -60,6 +61,8 @@ async function charge(row: any, kind: 'late_fee' | 'penalty', overdue: bigint): 
 /** A bill was just missed: one late fee, and start the penalty clock (first penalty one period from now). */
 export async function onMissed(row: any, overdue: bigint) {
   await sql`UPDATE lines SET last_penalty_at=COALESCE(last_penalty_at, now()) WHERE id=${row.id}`
+  // a fee shield (3 on-time bills in a row) cancels this late fee; penalty interest still runs if it stays overdue
+  if (await useShieldOnMiss(row.id)) return
   try {
     await charge(row, 'late_fee', overdue)
   } catch (e) {

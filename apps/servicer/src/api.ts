@@ -22,6 +22,7 @@ import { publishedTerms } from './charges'
 import { collateralView, confirmCollateral, prepareCollateral, releaseCollateral } from './collateral'
 import { accountInfo, changePassword, confirmChange, prepareChange, securityView } from './credentials'
 import { cancelRecovery, recoveryStatus, startRecovery } from './recovery'
+import { createOffer, liveOffer, offerView, rewardTerms, setMerchantFee, setOfferStatus } from './rewards'
 
 type Vars = { wallet: Address }
 export const app = new Hono<{ Variables: Vars }>()
@@ -49,7 +50,12 @@ const requireSession = async (c: any, next: any) => {
 app.get('/api/health', (c) => c.json({ ok: true, network: net.name }))
 
 app.get('/api/config', async (c) => {
-  const merchants = await sql`SELECT code, label FROM merchants WHERE active AND code IS NOT NULL ORDER BY created_at DESC LIMIT 200`
+  // shops with a live offer first, each with its "N% back" so the Pay screen can show it
+  const merchants = await sql`
+    SELECT m.code, m.label, o.pct_bps AS "offerPctBps"
+    FROM merchants m
+    LEFT JOIN merchant_offers o ON o.merchant_code=m.code AND o.status='active' AND (o.ends_at IS NULL OR o.ends_at > now()) AND o.spent < o.budget
+    WHERE m.active AND m.code IS NOT NULL ORDER BY (o.id IS NOT NULL) DESC, m.created_at DESC LIMIT 200`
   return c.json({
     network: net.name,
     chainId: net.chainId,
@@ -77,6 +83,7 @@ app.get('/api/config', async (c) => {
     publicWebOrigin,
     passkeyRpId,
     merchants,
+    rewards: rewardTerms(),
   })
 })
 
@@ -310,7 +317,8 @@ app.get('/api/me/activity', requireSession, async (c) => {
   const wallet = c.get('wallet')
   const [l] = await sql`SELECT id FROM lines WHERE borrower_wallet=${wallet} ORDER BY created_at DESC LIMIT 1`
   if (!l) return c.json({ spends: [], movements: [], events: [] })
-  const spends = await sql`SELECT p.pay_tx AS tx_hash, p.merchant_code, p.amount, p.status, p.settle_tx, p.block_number::text AS block_number, p.created_at, m.label
+  const spends = await sql`SELECT p.pay_tx AS tx_hash, p.merchant_code, p.amount, p.status, p.settle_tx, p.block_number::text AS block_number, p.created_at, m.label,
+                                  p.base_cashback, p.offer_cashback, p.cashback_status, p.cashback_tx, p.cashback_to_card
                            FROM payments p LEFT JOIN merchants m ON m.code=p.merchant_code
                            WHERE p.line_id=${l.id} ORDER BY p.id DESC LIMIT 100`
   const movements = await sql`SELECT kind, amount, tx_hash, status, created_at FROM movements WHERE line_id=${l.id} ORDER BY created_at DESC LIMIT 100`
@@ -417,7 +425,10 @@ app.post('/api/card/unlink', requireSession, async (c) => c.json(await unlinkCar
 app.get('/api/cards/:address', async (c) => c.json(await cardInfo(addr.parse(c.req.param('address')))))
 
 // ---------------- merchants ----------------
-app.get('/api/merchants/:code', async (c) => c.json(await getMerchant(c.req.param('code'))))
+app.get('/api/merchants/:code', async (c) => {
+  const m = await getMerchant(c.req.param('code'))
+  return c.json({ ...m, offer: offerView(await liveOffer(m.code)) })
+})
 
 app.post('/api/merchants', requireSession, async (c) => {
   const { label } = z.object({ label: z.string().trim().min(2).max(60) }).parse(await c.req.json())
@@ -425,6 +436,19 @@ app.post('/api/merchants', requireSession, async (c) => {
 })
 
 app.get('/api/merchant/me', requireSession, async (c) => c.json(await merchantDashboard(c.get('wallet'))))
+
+// ---- merchant offers ("10% back"), run by the shop from its dashboard ----
+app.post('/api/merchant/offers', requireSession, async (c) => {
+  const b = z
+    .object({ pctBps: z.number().int(), maxPerPayment: z.string().regex(/^\d+$/), budget: z.string().regex(/^\d+$/), endsAt: z.string().nullable().optional() })
+    .parse(await c.req.json())
+  return c.json(await createOffer(c.get('wallet'), { pctBps: b.pctBps, maxPerPayment: BigInt(b.maxPerPayment), budget: BigInt(b.budget), endsAt: b.endsAt ?? null }))
+})
+app.post('/api/merchant/offers/:id/:action', requireSession, async (c) => {
+  const action = z.enum(['pause', 'resume', 'end']).parse(c.req.param('action'))
+  const status = action === 'pause' ? 'paused' : action === 'resume' ? 'active' : 'ended'
+  return c.json(await setOfferStatus(c.get('wallet'), Number(c.req.param('id')), status))
+})
 
 // ---------------- testnet faucet (disabled on mainnet) ----------------
 app.post('/api/faucet', requireSession, async (c) => {
@@ -465,6 +489,11 @@ app.post('/api/admin/lines/:id/freeze', requireAdmin, async (c) => {
   if (!row) throw new UserError('not found', 404)
   await freezeLine(row, 'Manual')
   return c.json(await lineView(row.id))
+})
+
+app.post('/api/admin/merchants/:code/fee', requireAdmin, async (c) => {
+  const { feeBps } = z.object({ feeBps: z.number().int().nullable() }).parse(await c.req.json())
+  return c.json(await setMerchantFee(c.req.param('code'), feeBps))
 })
 
 app.post('/api/admin/merchants', requireAdmin, async (c) => {

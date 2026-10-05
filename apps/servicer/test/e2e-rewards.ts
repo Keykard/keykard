@@ -1,6 +1,6 @@
 /**
- * v2 end-to-end (fees for missed bills, repay from any wallet, 1:1 secured line, collateral on default) against a
- * RUNNING servicer on Tempo testnet. Run the servicer with PERIOD_SECONDS=90 GRACE_SECONDS=200.
+ * Rewards end-to-end (merchant fee, 0.5% cashback, merchant offers with budgets, per-merchant fee, fee shield) against
+ * a RUNNING servicer on Tempo testnet. Run the servicer with PERIOD_SECONDS=60 GRACE_SECONDS=300.
  * Based on e2e-default.ts: Real transactions, real relay,
  * real scheduler/watcher. Only the phone is simulated (headless WebAuthn signer) and the Self
  * webhook is signed with the test webhook secret the servicer is configured with.
@@ -148,95 +148,94 @@ async function fund(a: Address) {
   await waitFor('faucet', async () => (await bal(a)) > 0n, 90)
 }
 
-/** A: miss a bill → late fee → penalty interest → repaid from a DIFFERENT wallet → cured, fees paid, extra refunded. */
-async function feesAndExternalRepay(settle: Address, code: string) {
-  const x = await borrower('A')
-  const s = (await rl(() => Actions.token.transferSync(x.card, { token: net.token, to: settle, amount: u('10'), memo: encodePayMemo(code), feePayer: true } as any))) as any
-  check('A: spent $10', s.receipt.status === 'success')
-  const grace = await waitFor('A grace + late fee', async () => { const m = await me(x.token); return m.line.status === 'grace' && BigInt(m.line.feesDue) > 0n ? m : null }, env.PERIOD_SECONDS + 150)
-  check('A: missed bill → grace with a $1 late fee', grace?.line.feesDue === u('1').toString(), `due=${grace?.line.amountDue} fees=${grace?.line.feesDue}`)
-  const pen = await waitFor('A penalty', async () => { const m = await me(x.token); return BigInt(m.line.feesDue) > u('1') ? m : null }, env.PERIOD_SECONDS + 90)
-  // the $10 purchase earned 0.5% cashback, which paid down the bill: the overdue amount is what grace recorded
-  const overdueA = BigInt(grace!.line.amountDue)
-  check('A: penalty interest = 2% of the overdue amount, one period later', pen?.line.feesDue === (u('1') + (overdueA * 200n) / 10_000n).toString(), `overdue=${overdueA} fees=${pen?.line.feesDue}`)
-  const [ch] = await sql`SELECT count(*)::int AS n FROM line_charges WHERE line_id=${x.lineId}`
-  check('A: both charges recorded with on-chain receipts', ch.n === 2)
 
-  // one wallet: someone else sends money to the borrower's OWN KEYKARD wallet; the overdue bill is collected from it
-  const f = funder()
-  await fund(f.acct.address)
-  const total = BigInt(pen!.line.totalDue)
-  const sent = total + u('0.5')
-  const t = (await rl(() => Actions.token.transferSync(f.client, { token: net.token, to: x.wallet, amount: sent } as any))) as any
-  check(`A: a different wallet sent ${toUsd(sent)} to the borrower’s KEYKARD wallet`, t.receipt.status === 'success')
-  const cured = await waitFor('A cured', async () => { const m = await me(x.token); return m.line.status === 'active' && m.line.totalDue === '0' ? m : null }, 120)
-  check('A: overdue bill collected automatically, line cured, nothing due', Boolean(cured), `status=${cured?.line.status} spendable=${cured?.line.spendable}`)
-  check('A: credit restored to the full limit', cured?.line.available === cured?.line.limit, `available=${cured?.line.available}`)
-  check('A: fees booked as paid', cured?.line.feesPaid === pen?.line.feesDue, `paid=${cured?.line.feesPaid}`)
+const pays = async (lineId: number) => sql`SELECT * FROM payments WHERE line_id=${lineId} ORDER BY id`
+async function payAt(card: any, settle: Address, code: string, amount: string) {
+  const r = (await rl(() => Actions.token.transferSync(card, { token: net.token, to: settle, amount: u(amount), memo: encodePayMemo(code), feePayer: true } as any))) as any
+  return r.receipt.status === 'success'
+}
+const settled = (lineId: number, n: number) =>
+  waitFor(`${n} payments settled + cashback paid`, async () => {
+    const ps = await pays(lineId)
+    return ps.length >= n && ps.slice(0, n).every((p: any) => p.settle_tx && ['paid', 'none'].includes(p.cashback_status)) ? ps : null
+  }, 120)
+
+async function offersAndFees(settle: Address) {
+  const m = await makeMerchant('Rewards Cafe')
+  const mt = mintSession(m.wallet)
+  const o = await api('/api/merchant/offers', { token: mt, body: { pctBps: 1000, maxPerPayment: u('2').toString(), budget: u('1.2').toString(), endsAt: null } })
+  check('merchant created a 10% offer (max $2, budget $1.20) from the dashboard', o.pctBps === 1000 && o.status === 'active')
+  const pub = await api(`/api/merchants/${m.code}`)
+  check('customers see the offer on the shop', pub.offer?.pctBps === 1000)
+  const cfg = await api('/api/config')
+  check('config publishes the reward terms (1% fee, 0.5% back)', cfg.rewards?.merchantFeeBps === 100 && cfg.rewards?.baseCashbackBps === 50)
+  check('shop with an offer is listed with its % back', cfg.merchants.find((x: any) => x.code === m.code)?.offerPctBps === 1000)
+
+  const x = await borrower('R')
+  const mBefore = await bal(m.wallet)
+  check('R: paid $5 at the shop', await payAt(x.card, settle, m.code, '5'))
+  let ps = await settled(x.lineId, 1)
+  const p1 = ps![0]
+  check('split: fee $0.05 · 0.5% back $0.025 · offer $0.50 · shop gets $4.45',
+    p1.fee === u('0.05').toString() && p1.base_cashback === u('0.025').toString() && p1.offer_cashback === u('0.5').toString() && p1.merchant_net === u('4.45').toString(),
+    `fee=${p1.fee} base=${p1.base_cashback} offer=${p1.offer_cashback} net=${p1.merchant_net}`)
+  check('shop received exactly $4.45 on-chain', (await bal(m.wallet)) - mBefore === u('4.45'))
+  const me1 = await api('/api/me', { token: x.token })
+  check('cashback paid down the bill: owed $4.475, spendable $15.525', me1.line.owed === u('4.475').toString() && me1.line.spendable === u('15.525').toString(), `owed=${me1.line.owed} spendable=${me1.line.spendable}`)
+
+  check('R: paid $5 again', await payAt(x.card, settle, m.code, '5'))
+  check('R: paid $5 a third time', await payAt(x.card, settle, m.code, '5'))
+  ps = await settled(x.lineId, 3)
+  check('offer budget enforced: $0.50 + $0.50 + $0.20 = $1.20 exactly', ps![1].offer_cashback === u('0.5').toString() && ps![2].offer_cashback === u('0.2').toString(), `${ps![1].offer_cashback}/${ps![2].offer_cashback}`)
+  const dash = await api('/api/merchant/me', { token: mt })
+  check('dashboard: offer used up, stats show 3 payments / 1 customer / $1.20 given', dash.offer.ended === true && dash.stats.payments === 3 && dash.stats.customers === 1 && dash.stats.cashback === u('1.2').toString(), JSON.stringify(dash.stats))
+  check('dashboard shows the 1% fee and fees paid', dash.feeBps === 100 && dash.feesPaid === u('0.15').toString(), `fee=${dash.feeBps} paid=${dash.feesPaid}`)
+
+  // new offer, paused → no offer cashback; then KEYKARD sets this shop to 0% fee
+  const o2 = await api('/api/merchant/offers', { token: mt, body: { pctBps: 500, maxPerPayment: u('1').toString(), budget: u('5').toString(), endsAt: null } })
+  await api(`/api/merchant/offers/${o2.id}/pause`, { token: mt, method: 'POST' })
+  check('R: paid $2 while the offer is paused', await payAt(x.card, settle, m.code, '2'))
+  ps = await settled(x.lineId, 4)
+  check('paused offer gives nothing; base 0.5% still paid', ps![3].offer_cashback === '0' && ps![3].base_cashback === u('0.01').toString())
+  await api(`/api/admin/merchants/${m.code}/fee`, { token: env.ADMIN_TOKEN!, body: { feeBps: 0 } })
+  await api(`/api/merchant/offers/${o2.id}/resume`, { token: mt, method: 'POST' })
+  check('R: paid $2 at 0% fee with the offer resumed', await payAt(x.card, settle, m.code, '2'))
+  ps = await settled(x.lineId, 5)
+  check('0% fee shop: no fee, no base cashback (never more than the fee), offer 5% = $0.10', ps![4].fee === '0' && ps![4].base_cashback === '0' && ps![4].offer_cashback === u('0.1').toString() && ps![4].merchant_net === u('1.9').toString(), `fee=${ps![4].fee} base=${ps![4].base_cashback} offer=${ps![4].offer_cashback}`)
+  const act = await api('/api/me/activity', { token: x.token })
+  check('activity shows cashback on each payment', act.spends.filter((s: any) => BigInt(s.base_cashback) + BigInt(s.offer_cashback) > 0n).length >= 4)
 }
 
-/** B: deposit collateral (one batched tx), limit +1:1, release part + withdraw, then default → vault covers it. */
-async function securedAndDefault(settle: Address, code: string) {
-  const x = await borrower('B')
-  await fund(x.wallet)
-  const cfg = await api('/api/config')
-  const vault = cfg.collateralVault as Address
-  const prep = await api('/api/collateral/prepare', { token: x.token, body: { amount: u('15').toString() } })
-  check('B: collateral prepare needs no new auto-pay', prep.mandate === null, `newLimit=${prep.newLimit}`)
-  const dep = (await rl(() => sendTransactionSync(x.root, {
-    calls: [
-      { to: net.token, data: encodeFunctionData({ abi: erc20Abi, functionName: 'approve', args: [vault, u('15')] }) },
-      { to: vault, data: encodeFunctionData({ abi: collateralVaultAbi, functionName: 'deposit', args: [u('15')] }) },
-    ],
-    feePayer: true,
-  } as any))) as any
-  check('B: approve + deposit $15 in ONE passkey transaction, fee sponsored', dep.status === 'success')
-  const conf = await api('/api/collateral/confirm', { token: x.token, body: { amount: u('15').toString() } })
-  check('B: limit $20 → $35 (1:1), $15 locked', conf.limit === u('35').toString() && conf.secured === u('15').toString())
-  const m1 = await me(x.token)
-  check('B: card can spend the full $35', m1.line.spendable === u('35').toString(), `spendable=${m1.line.spendable}`)
-  check('B: vault shows $15 locked', m1.collateral?.locked === u('15').toString())
-
-  const rel = await api('/api/collateral/release', { token: x.token, body: { amount: u('5').toString() } })
-  check('B: released $5 → limit $30', rel.limit === u('30').toString() && rel.secured === u('10').toString())
-  const w = (await rl(() => sendTransactionSync(x.root, { to: vault, data: encodeFunctionData({ abi: collateralVaultAbi, functionName: 'withdraw', args: [u('5')] }), feePayer: true } as any))) as any
-  check('B: borrower withdrew the released $5 themselves', w.status === 'success')
-  let blocked = false
-  try {
-    await rl(() => sendTransactionSync(x.root, { to: vault, data: encodeFunctionData({ abi: collateralVaultAbi, functionName: 'withdraw', args: [u('1')] }), feePayer: true } as any))
-  } catch { blocked = true }
-  check('B: locked collateral cannot be withdrawn', blocked)
-
-  // empty the wallet so the next bill is missed, then spend into the secured part
+/** 3 on-time bills in a row earn a fee shield; the next missed bill uses it instead of a late fee. */
+async function feeShield(settle: Address, code: string) {
+  const x = await borrower('S')
+  await fund(x.wallet) // auto-pay can pay every bill
+  for (let i = 1; i <= 3; i++) {
+    check(`S: spent $1 before bill ${i}`, await payAt(x.card, settle, code, '1'))
+    const ok = await waitFor(`on-time bill ${i}`, async () => { const m = await me(x.token); return m.line.onTimeStreak >= i ? m : null }, env.PERIOD_SECONDS + 120)
+    check(`S: bill ${i} paid on time (streak ${i})`, Boolean(ok), `streak=${ok?.line.onTimeStreak} shields=${ok?.line.feeShields}`)
+  }
+  const m3 = await me(x.token)
+  check('S: 3 on time in a row earned a fee shield', m3.line.feeShields === 1)
   const rest = await bal(x.wallet)
-  await Actions.token.transferSync(x.root, { token: net.token, to: privateKeyToAccount(generatePrivateKey()).address, amount: rest, feePayer: true } as any)
-  const s = (await rl(() => Actions.token.transferSync(x.card, { token: net.token, to: settle, amount: u('25'), memo: encodePayMemo(code), feePayer: true } as any))) as any
-  check('B: spent $25 (more than the unsecured $20)', s.receipt.status === 'success')
-  // the vault pays on-chain first; the line's numbers follow a moment later, once the seizure is booked
-  const d = await waitFor('B default', async () => {
-    const [booked] = await sql`SELECT 1 FROM movements WHERE line_id=${x.lineId} AND kind='SEIZE'`
-    const m = await me(x.token)
-    return booked && ['defaulted', 'settled'].includes(m.line.status) && m.collateral?.locked === '0' ? m : null
-  }, env.PERIOD_SECONDS + env.GRACE_SECONDS + 240)
-  const [seize] = await sql`SELECT amount, tx_hash FROM movements WHERE line_id=${x.lineId} AND kind='SEIZE'`
-  check('B: after default the vault paid $10 of collateral to KEYKARD', seize?.amount === u('10').toString(), seize?.tx_hash)
-  // what was unpaid at default (the $25 spend less its 0.5% cashback) minus the $10 the vault paid
-  const [def] = await sql`SELECT detail->>'unpaid' AS unpaid FROM audit_log WHERE line_id=${x.lineId} AND action='line.defaulted'`
-  check('B: what collateral didn’t cover is still owed', d?.line.status === 'defaulted' && d?.line.amountDue === (BigInt(def.unpaid) - u('10')).toString(), `status=${d?.line.status} unpaid=${def?.unpaid} due=${d?.line.amountDue} fees=${d?.line.feesDue}`)
-
-  const f = funder()
-  await fund(f.acct.address)
-  const total = BigInt(d!.line.totalDue)
-  await rl(() => Actions.token.transferSync(f.client, { token: net.token, to: x.wallet, amount: total + u('2') } as any))
-  const st = await waitFor('B settled', async () => { const m = await me(x.token); return m.line.status === 'settled' ? m : null }, 150)
-  check('B: money sent to the wallet after default is collected automatically → settled', Boolean(st), `fees paid=${st?.line.feesPaid}`)
+  await rl(() => Actions.token.transferSync(x.root, { token: net.token, to: privateKeyToAccount(generatePrivateKey()).address, amount: rest, feePayer: true } as any))
+  check('S: spent $2 with an empty wallet', await payAt(x.card, settle, code, '2'))
+  const g = await waitFor('missed bill', async () => { const m = await me(x.token); return m.line.status === 'grace' ? m : null }, env.PERIOD_SECONDS + 120)
+  await sleep(8)
+  const after = await me(x.token)
+  check('S: missed bill → grace, but the shield cancelled the late fee', Boolean(g) && after.line.feesDue === '0' && after.line.feeShields === 0 && after.line.onTimeStreak === 0, `fees=${after.line.feesDue} shields=${after.line.feeShields} streak=${after.line.onTimeStreak}`)
+  const [used] = await sql`SELECT 1 FROM audit_log WHERE line_id=${x.lineId} AND action='reward.shield_used'`
+  check('S: shield use recorded', Boolean(used))
 }
 
 async function main() {
   const cfg = await api('/api/config')
-  check('config publishes the terms', cfg.terms?.lateFee === u('1').toString() && cfg.terms?.penaltyBpsPerPeriod === 200 && cfg.terms?.capBps === 2500, JSON.stringify(cfg.terms))
-  const shop = await makeMerchant('v2 Shop')
-  await Promise.all([feesAndExternalRepay(cfg.settlement, shop.code), securedAndDefault(cfg.settlement, shop.code)])
+  const shop = await makeMerchant('Shield Shop')
+  // offers need bills far apart (PERIOD_SECONDS=600); the fee shield needs them fast (PERIOD_SECONDS=60)
+  const part = process.env.PART ?? 'all'
+  if (part === 'offers') await offersAndFees(cfg.settlement)
+  else if (part === 'shield') await feeShield(cfg.settlement, shop.code)
+  else await Promise.all([offersAndFees(cfg.settlement), feeShield(cfg.settlement, shop.code)])
   console.log(`\n${results.filter((r) => r.startsWith('PASS')).length}/${results.length} checks passed`)
   await sql.end()
 }

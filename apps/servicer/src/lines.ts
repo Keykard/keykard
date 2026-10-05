@@ -461,6 +461,9 @@ export async function lineView(id: number | bigint) {
     repayAccount: (row.repay_account as Address | null) ?? null,
     secured: String(row.secured ?? 0),
     unsecuredLimit: (limit - BigInt(row.secured ?? 0)).toString(),
+    // rewards: on-time streak toward the next fee shield, and shields held (0 or 1)
+    onTimeStreak: Number(row.on_time_streak ?? 0),
+    feeShields: Number(row.fee_shields ?? 0),
     periodSeconds: row.period_seconds,
     termEnd: row.term_end,
   }

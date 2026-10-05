@@ -54,6 +54,10 @@ const Env = z.object({
   // account recovery (lost password AND passkey): waiting period after the passport check. Default 5 min on
   // testnet, 48 h on mainnet (see recovery.ts)
   RECOVERY_DELAY_SECONDS: z.coerce.number().int().positive().optional(),
+  // rewards (rewards.ts): standard merchant fee, cashback to cardholders (paid out of the fee), fee-shield streak
+  MERCHANT_FEE_BPS: z.coerce.number().int().min(0).max(500).default(100),
+  BASE_CASHBACK_BPS: z.coerce.number().int().min(0).max(500).default(50),
+  SHIELD_EVERY: z.coerce.number().int().positive().default(3),
   ON_TIME_TO_UPGRADE: z.coerce.number().int().positive().default(2),
   // Comma-separated ISO-3 residence countries refused at signup. Empty during the hackathon pilot (team decision
   // 2026-09-29). Set to 'IND' before any public launch unless a legal opinion says otherwise.

@@ -62,7 +62,9 @@ export type AppConfig = {
   excludedCountries: string[]
   selfEnabled: boolean
   devVerify?: boolean
-  merchants: { code: string; label: string }[]
+  merchants: { code: string; label: string; offerPctBps?: number | null }[]
+  /** Reward terms: standard merchant fee, cashback to cardholders, on-time bills per fee shield. */
+  rewards?: { merchantFeeBps: number; baseCashbackBps: number; shieldEvery: number }
   creditTerms?: `0x${string}` | null
   collateralVault?: `0x${string}` | null
   /** Published pricing for missed payments, read from the CreditTerms contract. On time = 0%. */

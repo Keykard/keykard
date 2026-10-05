@@ -16,14 +16,18 @@ import { Banner, Button, Chip, Field, ListRow, Panel, Row, Text } from '@/ui/kit
 import { KeyMark } from '@/ui/KeykardCard'
 import { CardFlowSheet, type FlowState } from '@/ui/CardFlowSheet'
 import { SecureNudge } from '@/ui/Security'
+import { MerchantOffer, type Offer, type OfferStats } from '@/ui/MerchantOffer'
 import { color, font } from '@/ui/theme'
 
 type Dash = {
   merchant: { code: string; label: string; owner: string; settleTo: string; settlement: string }
-  payments: { amount: string; pay_tx: string | null; settle_tx: string; status: string; created_at: string | null }[]
+  payments: { amount: string; pay_tx: string | null; settle_tx: string; status: string; created_at: string | null; gross?: string | null; fee?: string | null; offer_cashback?: string | null }[]
   pending?: { amount: string; pay_tx: string; status: string; created_at: string }[]
   settledTotal: string
   settledCount: number
+  feeBps?: number
+  offer?: Offer | null
+  stats?: OfferStats | null
 }
 
 export default function Merchant() {
@@ -165,6 +169,8 @@ function Till({ dash, explorer, web, onPaid }: { dash: Dash; explorer?: string; 
         {result && <Banner kind={result.kind}>{result.text}</Banner>}
       </Panel>
 
+      <MerchantOffer offer={dash.offer ?? null} stats={dash.stats ?? null} feeBps={dash.feeBps ?? 100} onChange={onPaid} />
+
       <Panel>
         <Row between>
           <Text v="h2">Payments</Text>
@@ -177,7 +183,9 @@ function Till({ dash, explorer, web, onPaid }: { dash: Dash; explorer?: string; 
           <Text v="small" style={{ textAlign: 'center', paddingVertical: 18, color: color.text3 }}>No payments yet. Share your code to get paid.</Text>
         ) : (
           dash.payments.slice(0, 50).map((p) => (
-            <ListRow key={p.settle_tx} icon="↙" positive title="Payment received" sub={p.created_at ? when(p.created_at) : 'Settled'} right={`+${usd(p.amount)}`} rightSub="Receipt ↗"
+            <ListRow key={p.settle_tx} icon="↙" positive title="Payment received"
+              sub={`${p.created_at ? when(p.created_at) : 'Settled'}${p.gross && BigInt(p.gross) !== BigInt(p.amount) ? ` · ${usd(p.gross)}${BigInt(p.fee ?? '0') > 0n ? ` − ${usd(p.fee)} fee` : ''}${BigInt(p.offer_cashback ?? '0') > 0n ? ` − ${usd(p.offer_cashback)} offer` : ''}` : ''}`}
+              right={`+${usd(p.amount)}`} rightSub="Receipt ↗"
               onPress={() => explorer && WebBrowser.openBrowserAsync(`${explorer}/tx/${p.settle_tx}`)} />
           ))
         )}

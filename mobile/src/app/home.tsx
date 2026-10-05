@@ -16,7 +16,8 @@ import { SecureNudge } from '@/ui/Security'
 import { color, font, skins, type Skin } from '@/ui/theme'
 
 type Activity = {
-  spends: { tx_hash: string; label: string | null; merchant_code: string | null; amount: string; status: string; created_at?: string }[]
+  spends: { tx_hash: string; label: string | null; merchant_code: string | null; amount: string; status: string; created_at?: string; base_cashback?: string; offer_cashback?: string; cashback_status?: string; cashback_tx?: string | null }[]
+  events?: { action: string; created_at?: string }[]
   movements: { tx_hash: string; kind: string; amount: string; status: string; created_at?: string }[]
   charges?: { tx_hash: string; kind: 'late_fee' | 'penalty'; amount: string; overdue: string; created_at?: string }[]
 }
@@ -78,6 +79,12 @@ export default function Home() {
   const rows = [
     ...spends.map((s) => ({ key: s.tx_hash, at: s.created_at ?? '', icon: '↗', title: s.label ?? s.merchant_code ?? 'Payment', sub: s.status === 'settled' ? 'Paid to merchant' : s.status === 'received' ? 'Settling to merchant…' : s.status.replace(/_/g, ' '), right: `−${usd(s.amount)}`, positive: false, tx: s.tx_hash })),
     ...repaid.map((m) => ({ key: m.tx_hash, at: m.created_at ?? '', icon: '↺', title: REPAID[m.kind][0], sub: REPAID[m.kind][1], right: `+${usd(m.amount)}`, positive: true, tx: m.tx_hash })),
+    ...spends
+      .filter((s) => s.cashback_status === 'paid' && BigInt(s.base_cashback ?? '0') + BigInt(s.offer_cashback ?? '0') > 0n)
+      .map((s) => ({ key: `${s.tx_hash}-cb`, at: s.created_at ?? '', icon: '★', title: `Cashback · ${s.label ?? s.merchant_code ?? 'shop'}`, sub: BigInt(s.offer_cashback ?? '0') > 0n ? (BigInt(s.base_cashback ?? '0') > 0n ? 'Shop offer + 0.5% back' : 'Shop offer') : '0.5% back on every payment', right: `+${usd(BigInt(s.base_cashback ?? '0') + BigInt(s.offer_cashback ?? '0'))}`, positive: true, tx: s.cashback_tx ?? s.tx_hash })),
+    ...(act?.events ?? [])
+      .filter((e) => e.action === 'reward.shield_earned' || e.action === 'reward.shield_used')
+      .map((e, i) => ({ key: `shield-${i}-${e.created_at}`, at: e.created_at ?? '', icon: '◆', title: e.action === 'reward.shield_earned' ? 'Fee shield earned' : 'Fee shield used', sub: e.action === 'reward.shield_earned' ? '3 on-time bills in a row' : 'Your late fee was cancelled', right: '', positive: true, tx: '' })),
     ...(act?.charges ?? []).map((c) => ({ key: c.tx_hash, at: c.created_at ?? '', icon: '!', title: c.kind === 'late_fee' ? 'Late fee' : 'Overdue interest', sub: c.kind === 'late_fee' ? 'A bill was missed' : `On ${usd(c.overdue)} overdue`, right: usd(c.amount), positive: false, tx: c.tx_hash })),
   ].sort((a, b) => (b.at > a.at ? 1 : -1))
 
@@ -134,7 +141,7 @@ export default function Home() {
           ) : rows.length === 0 ? (
             <Text v="small" style={{ textAlign: 'center', paddingVertical: 18, color: color.text3 }}>No payments yet. Your first one shows up here.</Text>
           ) : (
-            rows.slice(0, 20).map((r) => <ListRow key={r.key} icon={r.icon} title={r.title} sub={r.sub} right={r.right} rightSub="Receipt ↗" positive={r.positive} onPress={() => receipt(r.tx)} />)
+            rows.slice(0, 20).map((r) => <ListRow key={r.key} icon={r.icon} title={r.title} sub={r.sub} right={r.right} rightSub={r.tx ? 'Receipt ↗' : undefined} positive={r.positive} onPress={r.tx ? () => receipt(r.tx) : undefined} />)
           )}
         </Panel>
 

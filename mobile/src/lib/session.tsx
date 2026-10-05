@@ -27,6 +27,8 @@ export type Line = {
   repayAccount?: Address | null
   secured?: string
   unsecuredLimit?: string
+  onTimeStreak?: number
+  feeShields?: number
 }
 export type Me = {
   user: { wallet: Address; role: Role; username?: string | null } | null

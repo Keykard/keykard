@@ -11,6 +11,7 @@ import { applyExternalRepayments } from './repay'
 import { withLine } from './linelock'
 import { completeRecoveries } from './recovery'
 import { autoCollectDefaulted } from './lifecycle'
+import { onTimeBill } from './rewards'
 
 /**
  * Line economics (0% if you pay on time; a missed bill is priced by CreditTerms, see charges.ts):
@@ -102,6 +103,7 @@ async function runStatement(row: any) {
     await lineBookWrite('recordRepayment', [BigInt(row.linebook_id), r.txHash!, r.pulled, true])
     await sql`UPDATE lines SET statement_seq=${seq}, amount_due=0, on_time_count=${onTime}, next_due=${nextDue}, updated_at=now() WHERE id=${row.id}`
     await audit({ lineId: row.id, actor: 'servicer', action: 'repaid.on_time', detail: { amount: r.pulled, seq }, txHash: r.txHash })
+    await onTimeBill(row.id)
     const [fresh] = await sql`SELECT * FROM lines WHERE id=${row.id}`
     await maybeUpgrade(fresh, onTime)
     return

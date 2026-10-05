@@ -30,6 +30,7 @@ export default function CardPage() {
   const [busy, setBusy] = useState(false)
   const [merchant, setMerchant] = useState('')
   const [merchantName, setMerchantName] = useState<string | null>(null)
+  const [offer, setOffer] = useState<{ pctBps: number; maxPerPayment: string } | null>(null)
   const [amount, setAmount] = useState('')
   const [invite, setInvite] = useState<string | null>(null)
   const [guarAmount, setGuarAmount] = useState('30')
@@ -57,9 +58,13 @@ export default function CardPage() {
 
   useEffect(() => {
     setMerchantName(null)
+    setOffer(null)
     if (!MERCHANT_CODE_RE.test(merchant)) return
     api<{ label: string }>(`/api/merchants/${merchant}`, { auth: false })
-      .then((m) => setMerchantName(m.label))
+      .then((m: any) => {
+        setMerchantName(m.label)
+        setOffer(m.offer ?? null)
+      })
       .catch(() => setMerchantName(''))
   }, [merchant])
 
@@ -184,10 +189,29 @@ export default function CardPage() {
           <input id="m" list="merchant-list" autoCapitalize="characters" placeholder="e.g. 7QX2MD" value={merchant} onChange={(e) => setMerchant(e.target.value.toUpperCase().trim())} />
           <datalist id="merchant-list">
             {cfg.merchants.map((m) => (
-              <option key={m.code} value={m.code}>{m.label}</option>
+              <option key={m.code} value={m.code}>{m.label}{m.offerPctBps ? ` · ${m.offerPctBps / 100}% back` : ''}</option>
             ))}
           </datalist>
-          {merchantName && <p className="small ok">Paying: {merchantName}</p>}
+          {merchantName && (
+            <p className="small ok">
+              Paying: {merchantName}
+              {offer && <span className="pill-offer">{offer.pctBps / 100}% back</span>}
+            </p>
+          )}
+          {merchantName && amount && (() => {
+            let base = 0n
+            try {
+              base = toBase(amount)
+            } catch {}
+            if (base <= 0n) return null
+            const r = cfg.rewards
+            let back = r ? (base * BigInt(r.baseCashbackBps)) / 10_000n : 0n
+            if (offer) {
+              const o = (base * BigInt(offer.pctBps)) / 10_000n
+              back += o < BigInt(offer.maxPerPayment) ? o : BigInt(offer.maxPerPayment)
+            }
+            return back > 0n ? <p className="small muted">You’ll get about {usd(back)} back, paid toward your bill.</p> : null
+          })()}
           {merchantName === '' && <p className="small warn">No KEYKARD merchant with this code.</p>}
           <label htmlFor="a">Amount (USD)</label>
           <input id="a" className="amount-input" inputMode="decimal" placeholder="$0.00" value={amount} onChange={(e) => setAmount(e.target.value)} />
@@ -222,6 +246,21 @@ export default function CardPage() {
                 key: c.tx_hash, at: c.created_at ?? '', icon: '!', title: c.kind === 'late_fee' ? 'Late fee' : 'Overdue interest',
                 sub: c.kind === 'late_fee' ? 'A bill was missed' : `On ${usd(c.overdue)} overdue`, amt: usd(c.amount), tone: 'warn', tx: c.tx_hash, link: 'Record',
               })),
+              ...spends
+                .filter((s: any) => s.cashback_status === 'paid' && BigInt(s.base_cashback ?? 0) + BigInt(s.offer_cashback ?? 0) > 0n)
+                .map((s: any) => ({
+                  key: `${s.tx_hash}-cb`, at: s.created_at ?? '', icon: '★', title: `Cashback · ${s.label ?? s.merchant_code ?? 'shop'}`,
+                  sub: BigInt(s.offer_cashback ?? 0) > 0n ? (BigInt(s.base_cashback ?? 0) > 0n ? 'Shop offer + 0.5% back' : 'Shop offer') : '0.5% back on every payment',
+                  amt: `+${usd(BigInt(s.base_cashback) + BigInt(s.offer_cashback))}`, tone: 'ok', tx: s.cashback_tx ?? s.tx_hash, link: 'Receipt', in: true,
+                })),
+              ...(activity?.events ?? [])
+                .filter((e: any) => e.action === 'reward.shield_earned' || e.action === 'reward.shield_used')
+                .map((e: any, i: number) => ({
+                  key: `shield-${i}-${e.created_at}`, at: e.created_at ?? '', icon: '◆',
+                  title: e.action === 'reward.shield_earned' ? 'Fee shield earned' : 'Fee shield used',
+                  sub: e.action === 'reward.shield_earned' ? '3 on-time bills in a row' : 'Your late fee was cancelled',
+                  amt: '', tone: 'ok', tx: null, link: '', in: true,
+                })),
               ...repaid.map((m: any) => ({
                 key: m.tx_hash, at: m.created_at ?? '', icon: '↺', title: REPAID[m.kind][0], sub: REPAID[m.kind][1],
                 amt: `+${usd(m.amount)}`, tone: 'ok', tx: m.tx_hash, link: 'Receipt', in: true,
@@ -237,7 +276,7 @@ export default function CardPage() {
                   </span>
                   <span className={`amt ${r.tone}`}>
                     {r.amt}
-                    <a href={`${cfg.explorerUrl}/tx/${r.tx}`} target="_blank" rel="noreferrer">{r.link} ↗</a>
+                    {r.tx && <a href={`${cfg.explorerUrl}/tx/${r.tx}`} target="_blank" rel="noreferrer">{r.link} ↗</a>}
                   </span>
                 </li>
               ))}
@@ -264,6 +303,7 @@ export default function CardPage() {
           ))}
         </div>
         <p className="small muted">Two on-time bills in a row move you up a step.</p>
+        <ShieldStatus line={line} every={cfg.rewards?.shieldEvery ?? 3} />
         <TermsNote cfg={cfg} />
       </section>
 
@@ -322,5 +362,23 @@ export default function CardPage() {
         Every line event is recorded on-chain. <Link href="/stats">See the public credit file</Link>
       </p>
     </main>
+  )
+}
+
+/** Rewards: progress toward the next fee shield (3 on-time bills in a row cancel the next late fee). */
+function ShieldStatus({ line, every }: { line: any; every: number }) {
+  const streak = Number(line.onTimeStreak ?? 0)
+  const shield = Number(line.feeShields ?? 0) > 0
+  const step = streak % every
+  return (
+    <div className="shield">
+      <div className="row between">
+        <span className="small"><b>{shield ? 'Fee shield ready' : 'Fee shield'}</b></span>
+        <span className="small muted">{shield ? 'Your next late fee is cancelled' : `${step} of ${every} on-time bills`}</span>
+      </div>
+      <div className="shield-dots" aria-hidden>
+        {Array.from({ length: every }).map((_, i) => <i key={i} className={shield || i < step ? 'on' : ''} />)}
+      </div>
+    </div>
   )
 }

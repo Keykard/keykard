@@ -22,6 +22,7 @@ export default function Pay() {
   const { me, cfg, refresh } = useSession()
   const [code, setCode] = useState('')
   const [merchant, setMerchant] = useState<string | null | ''>(null) // null unknown · '' not found · label
+  const [offer, setOffer] = useState<{ pctBps: number; maxPerPayment: string } | null>(null)
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -34,10 +35,15 @@ export default function Pay() {
 
   useEffect(() => {
     setMerchant(null)
+    setOffer(null)
     if (!MERCHANT_CODE_RE.test(code)) return
     let alive = true
-    api<{ label: string }>(`/api/merchants/${code}`, { auth: false })
-      .then((m) => alive && setMerchant(m.label))
+    api<{ label: string; offer: { pctBps: number; maxPerPayment: string } | null }>(`/api/merchants/${code}`, { auth: false })
+      .then((m) => {
+        if (!alive) return
+        setMerchant(m.label)
+        setOffer(m.offer ?? null)
+      })
       .catch(() => alive && setMerchant(''))
     return () => {
       alive = false
@@ -118,12 +124,16 @@ export default function Pay() {
         </View>
         <Button testID="pay-scan" title="Scan" kind="quiet" style={{ minHeight: 54, paddingHorizontal: 18 }} onPress={() => router.push('/scan')} />
       </View>
-      {merchant ? <Text v="small" style={{ color: color.ok, marginTop: 8 }}>Paying {merchant}</Text> : merchant === '' ? <Text v="small" style={{ color: color.warn, marginTop: 8 }}>No KEYKARD merchant with this code.</Text> : null}
+      {merchant ? (
+        <Text v="small" style={{ color: color.ok, marginTop: 8 }}>
+          Paying {merchant}{offer ? `  ·  ${offer.pctBps / 100}% back` : ''}
+        </Text>
+      ) : merchant === '' ? <Text v="small" style={{ color: color.warn, marginTop: 8 }}>No KEYKARD merchant with this code.</Text> : null}
       {!code && cfg && cfg.merchants.length > 0 && (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
           {cfg.merchants.slice(0, 6).map((m) => (
             <Pressable key={m.code} onPress={() => setCode(m.code)} style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 99, backgroundColor: color.surface1, borderWidth: 1, borderColor: color.hairline }}>
-              <Text v="small" style={{ color: color.text }}>{m.label}</Text>
+              <Text v="small" style={{ color: color.text }}>{m.label}{m.offerPctBps ? `  ${m.offerPctBps / 100}% back` : ''}</Text>
             </Pressable>
           ))}
         </View>
@@ -136,6 +146,14 @@ export default function Pay() {
         <Text v="small" style={{ color: over ? color.bad : color.text3, marginTop: 4 }}>
           {over ? `More than your ${usd(spendable)} available` : `Available ${usd(spendable)}`}
         </Text>
+        {merchant && base > 0n && (() => {
+          let back = cfg?.rewards ? (base * BigInt(cfg.rewards.baseCashbackBps)) / 10_000n : 0n
+          if (offer) {
+            const o = (base * BigInt(offer.pctBps)) / 10_000n
+            back += o < BigInt(offer.maxPerPayment) ? o : BigInt(offer.maxPerPayment)
+          }
+          return back > 0n ? <Text v="small" style={{ color: color.ok, marginTop: 4 }}>You’ll get about {usd(back)} back</Text> : null
+        })()}
       </View>
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 16 }}>

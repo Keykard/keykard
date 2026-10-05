@@ -6,6 +6,7 @@ import { net } from './config'
 import { findMemoTransfer, publicClient, registryRead, registryWrite, settlement, sponsoredTransfer } from './chain'
 import { audit, sql } from './db'
 import { UserError } from './lines'
+import { feeBpsFor, offerDashboard, payCashback, retryCashback, splitPayment } from './rewards'
 
 /**
  * KEYKARD merchant network.
@@ -48,7 +49,14 @@ export async function registerMerchant(owner: Address, label: string) {
 }
 
 export function merchantView(r: any) {
-  return { code: r.code as string, label: r.label as string, owner: r.owner_wallet as Address, settleTo: r.settle_to as Address, settlement: r.settlement as string }
+  return {
+    code: r.code as string,
+    label: r.label as string,
+    owner: r.owner_wallet as Address,
+    settleTo: r.settle_to as Address,
+    settlement: r.settlement as string,
+    feeBps: (r.fee_bps ?? null) as number | null,
+  }
 }
 
 export async function getMerchant(code: string) {
@@ -125,14 +133,19 @@ export async function processPayments(from: bigint, to: bigint) {
               ${l.args.memo}, 'received', ${l.blockNumber.toString()})
       ON CONFLICT (pay_tx, log_index) DO NOTHING RETURNING *`
     if (!p) continue // already processed
-    await settleOne({ id: p.id, line_id: line?.id ?? null, to: dest!, amount, status, code: merchant?.code ?? null })
+    // a real sale: split it (merchant fee, cashback, the shop's offer) and settle the shop's share
+    const payout = status === 'settled' ? await splitPayment(p.id, merchant, amount) : amount
+    await settleOne({ id: p.id, line_id: line?.id ?? null, to: dest!, amount: payout, status, code: merchant?.code ?? null })
+    if (status === 'settled') await payCashback(p.id).catch((e) => console.error('[cashback] failed (will retry)', p.id, e?.shortMessage ?? e?.message ?? e))
   }
   // retry failed settlements
   const failed = await sql`SELECT p.*, m.settle_to FROM payments p LEFT JOIN merchants m ON m.code=p.merchant_code WHERE p.status='failed' AND p.settle_tx IS NULL LIMIT 20`
   for (const f of failed) {
     const dest = (f.settle_to ?? f.payer) as Address
-    await settleOne({ id: f.id, line_id: f.line_id, to: dest, amount: BigInt(f.amount), status: f.settle_to ? 'settled' : 'unmatched', code: f.merchant_code })
+    const amount = f.settle_to && f.merchant_net !== null ? BigInt(f.merchant_net) : BigInt(f.amount)
+    await settleOne({ id: f.id, line_id: f.line_id, to: dest, amount, status: f.settle_to ? 'settled' : 'unmatched', code: f.merchant_code })
   }
+  await retryCashback()
 }
 
 export async function merchantDashboard(owner: Address) {
@@ -141,14 +154,26 @@ export async function merchantDashboard(owner: Address) {
   // history = on-chain settlements to this merchant's wallet (source of truth), enriched with app records when present
   const payments = await sql`
     SELECT s.amount, s.tx_hash AS settle_tx, p.pay_tx, 'settled' AS status, COALESCE(s.block_time, p.settled_at) AS created_at,
-           s.block_number::text AS block_number
+           s.block_number::text AS block_number, p.amount AS gross, p.fee, p.offer_cashback
     FROM settlements s LEFT JOIN payments p ON p.settle_tx = s.tx_hash
     WHERE s.to_addr = ${lower(m.settle_to)} ORDER BY s.block_number DESC LIMIT 200`
   const [tot] = await sql`SELECT COALESCE(sum(amount),0) AS total, count(*) AS n FROM settlements WHERE to_addr=${lower(m.settle_to)}`
   // settlements still in flight (received, not yet on-chain out)
   const pending = await sql`SELECT amount, pay_tx, status, created_at FROM payments
                             WHERE merchant_code=${m.code} AND status IN ('received','failed') ORDER BY id DESC LIMIT 20`
-  return { merchant: merchantView(m), payments, pending, settledTotal: tot.total.toString(), settledCount: Number(tot.n), source: 'tempo-chain' }
+  const fees = await sql`SELECT COALESCE(sum(fee),0) AS fees, COALESCE(sum(offer_cashback),0) AS given FROM payments WHERE merchant_code=${m.code}`
+  return {
+    merchant: merchantView(m),
+    payments,
+    pending,
+    settledTotal: tot.total.toString(),
+    settledCount: Number(tot.n),
+    source: 'tempo-chain',
+    feeBps: feeBpsFor(m),
+    feesPaid: String(fees[0].fees),
+    offerCashbackGiven: String(fees[0].given),
+    ...(await offerDashboard(m.code)),
+  }
 }
 
 export const _head = () => getBlockNumber(publicClient)

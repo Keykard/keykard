@@ -8,10 +8,15 @@ import { signOut } from '@/lib/wallet'
 import { TapToCharge } from '@/components/TapToCharge'
 import { AccountBar, WrongAccount } from '@/components/AccountBar'
 import { SecureNudge, SecurityPanel } from '@/components/Security'
+import { MerchantOffer } from '@/components/MerchantOffer'
 
 type Dash = {
   merchant: { code: string; label: string; owner: string; settleTo: string; settlement: string }
-  payments: { amount: string; pay_tx: string | null; settle_tx: string; status: string; created_at: string | null }[]
+  payments: { amount: string; pay_tx: string | null; settle_tx: string; status: string; created_at: string | null; gross?: string | null; fee?: string | null; offer_cashback?: string | null }[]
+  feeBps: number
+  feesPaid: string
+  offer: any
+  stats: any
   pending?: { amount: string; pay_tx: string; status: string; created_at: string }[]
   settledTotal: string
   settledCount: number
@@ -108,6 +113,7 @@ export default function MerchantPage() {
             <CopyText text={payLink} label="Copy pay link" />
           </div>
           <TapToCharge merchantCode={dash.merchant.code} onPaid={() => setTimeout(load, 3000)} />
+          <MerchantOffer offer={dash.offer} stats={dash.stats} feeBps={dash.feeBps} onChange={load} />
           <section className="panel">
             <div className="row between">
               <h2 style={{ margin: 0 }}>Payments</h2>
@@ -127,7 +133,12 @@ export default function MerchantPage() {
                     <span className="ic in" aria-hidden>↙</span>
                     <span className="grow">
                       <b>Payment received</b>
-                      <small>{p.created_at ? new Date(p.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Settled'}</small>
+                      <small>
+                        {p.created_at ? new Date(p.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Settled'}
+                        {p.gross && BigInt(p.gross) !== BigInt(p.amount)
+                          ? ` · ${usd(p.gross)} sale${BigInt(p.fee ?? 0) > 0n ? ` − ${usd(p.fee)} fee` : ''}${BigInt(p.offer_cashback ?? 0) > 0n ? ` − ${usd(p.offer_cashback)} offer` : ''}`
+                          : ''}
+                      </small>
                     </span>
                     <span className="amt ok">
                       +{usd(p.amount)}

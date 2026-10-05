@@ -91,6 +91,29 @@ export default function Autopay() {
         <Link title="Need more? Secure a bigger limit 1:1 ›" style={{ marginTop: 10 }} onPress={() => router.push('/secured')} />
       </Panel>
 
+      <Panel>
+        {(() => {
+          const every = cfg.rewards?.shieldEvery ?? 3
+          const streak = line.onTimeStreak ?? 0
+          const shield = (line.feeShields ?? 0) > 0
+          const step = streak % every
+          return (
+            <>
+              <Row between>
+                <Text v="h3">{shield ? 'Fee shield ready' : 'Fee shield'}</Text>
+                <Text v="small">{shield ? 'Next late fee cancelled' : `${step} of ${every} on time`}</Text>
+              </Row>
+              <View style={{ flexDirection: 'row', gap: 4, marginTop: 10 }}>
+                {Array.from({ length: every }).map((_, i) => (
+                  <View key={i} style={{ flex: 1, height: 4, borderRadius: 4, backgroundColor: shield || i < step ? color.ok : 'rgba(255,255,255,0.1)' }} />
+                ))}
+              </View>
+              <Text v="small" style={{ marginTop: 10 }}>Pay {every} bills on time in a row and your next late fee is on us.</Text>
+            </>
+          )
+        })()}
+      </Panel>
+
       {cfg.terms && (
         <Panel>
           <Text v="h3">What a missed bill costs</Text>
