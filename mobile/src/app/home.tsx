@@ -77,7 +77,7 @@ export default function Home() {
   const spends = act?.spends ?? []
   const repaid = (act?.movements ?? []).filter((m) => m.status === 'confirmed' && m.kind in REPAID)
   const rows = [
-    ...spends.map((s) => ({ key: s.tx_hash, at: s.created_at ?? '', icon: '↗', title: s.label ?? s.merchant_code ?? 'Payment', sub: s.status === 'settled' ? 'Paid to merchant' : s.status === 'received' ? 'Settling to merchant…' : s.status.replace(/_/g, ' '), right: `−${usd(s.amount)}`, positive: false, tx: s.tx_hash })),
+    ...spends.map((s) => ({ key: s.tx_hash, at: s.created_at ?? '', icon: '↗', title: s.label ?? s.merchant_code ?? 'Payment', sub: s.status === 'settled' ? 'Paid to merchant' : s.status === 'received' || s.status === 'failed' ? 'Settling to merchant…' : s.status.replace(/_/g, ' '), right: `−${usd(s.amount)}`, positive: false, tx: s.tx_hash })),
     ...repaid.map((m) => ({ key: m.tx_hash, at: m.created_at ?? '', icon: '↺', title: REPAID[m.kind][0], sub: REPAID[m.kind][1], right: `+${usd(m.amount)}`, positive: true, tx: m.tx_hash })),
     ...spends
       .filter((s) => s.cashback_status === 'paid' && BigInt(s.base_cashback ?? '0') + BigInt(s.offer_cashback ?? '0') > 0n)

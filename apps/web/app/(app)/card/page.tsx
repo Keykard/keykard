@@ -239,7 +239,7 @@ export default function CardPage() {
             {[
               ...spends.map((s: any) => ({
                 key: s.tx_hash, at: s.created_at ?? '', icon: '↗', title: s.label ?? s.merchant_code ?? 'Payment',
-                sub: s.status === 'settled' ? 'Paid to merchant' : s.status === 'received' ? 'Settling to merchant…' : s.status.replace(/_/g, ' '),
+                sub: s.status === 'settled' ? 'Paid to merchant' : s.status === 'received' || s.status === 'failed' ? 'Settling to merchant…' : s.status.replace(/_/g, ' '),
                 amt: `−${usd(s.amount)}`, tone: '', tx: s.tx_hash, link: 'Receipt',
               })),
               ...charges.map((c: any) => ({

@@ -31,14 +31,17 @@ export async function tokenBalance(owner: Address): Promise<bigint> {
  * a limited key's account count against its limit (spike S9), and sponsored pulls are exact (spike P2).
  */
 export async function sponsoredTransfer(p: { account: any; to: Address; amount: bigint; memo?: Hex }) {
-  const r = await Actions.token.transferSync(clientFor(p.account), {
-    token: net.token,
-    to: p.to,
-    amount: p.amount,
-    memo: p.memo,
-    // a sender cannot be its own fee payer ("fee payer cannot resolve to sender")
-    ...(p.account.address.toLowerCase() === treasury.address.toLowerCase() ? {} : { feePayer: treasury }),
-  } as any)
+  // rate-limited sends are rejected before broadcast, so they're retried here (merchant payouts, cashback, pulls)
+  const r = await sendWithBackoff(() =>
+    Actions.token.transferSync(clientFor(p.account), {
+      token: net.token,
+      to: p.to,
+      amount: p.amount,
+      memo: p.memo,
+      // a sender cannot be its own fee payer ("fee payer cannot resolve to sender")
+      ...(p.account.address.toLowerCase() === treasury.address.toLowerCase() ? {} : { feePayer: treasury }),
+    } as any),
+  )
   const receipt = (r as any).receipt
   if (receipt.status !== 'success') throw new Error(`transfer reverted: ${receipt.transactionHash}`)
   return receipt.transactionHash as Hex
