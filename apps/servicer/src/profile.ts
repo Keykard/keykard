@@ -20,7 +20,7 @@ export async function publicProfile(username: string) {
   }
   const [user] = await sql`SELECT wallet, username, role, public_profile, created_at FROM users WHERE username=${u}`
   if (!user || user.role !== 'borrower' || !user.public_profile) throw new UserError('no credit file here', 404)
-  const [att] = await sql`SELECT flags, expires_at, tx_hash FROM attestations WHERE wallet=${user.wallet}`
+  const [att] = await sql`SELECT flags, expires_at, tx_hash, self_session_id FROM attestations WHERE wallet=${user.wallet}`
   const lines = await sql`
     SELECT linebook_id, status, credit_limit, on_time_count, missed_count, opened_at, settled_at, credit_account
     FROM lines WHERE borrower_wallet=${user.wallet} AND status <> 'preparing' ORDER BY created_at`
@@ -31,6 +31,8 @@ export async function publicProfile(username: string) {
     wallet: user.wallet as Address,
     memberSince: user.created_at as Date,
     verified: Boolean(att && (att.flags & BORROWER_FLAGS) === BORROWER_FLAGS && new Date(att.expires_at) > new Date()),
+    // 'testnet-skip': a testnet test account that used "Skip verification", not a real Self proof
+    verifiedBy: att ? (att.self_session_id ? 'self' : 'testnet-skip') : null,
     attestationTx: (att?.tx_hash as string | null) ?? null,
     firstLineAt: (lines[0]?.opened_at as Date | null) ?? null,
     onTime: sum('on_time_count'),

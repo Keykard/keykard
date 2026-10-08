@@ -10,6 +10,7 @@ type Profile = {
   wallet: string
   memberSince: string
   verified: boolean
+  verifiedBy?: 'self' | 'testnet-skip' | null
   attestationTx: string | null
   firstLineAt: string | null
   onTime: number
@@ -64,7 +65,10 @@ export default function CreditFile() {
       <h1 style={{ marginTop: 0 }}>@{p.username}</h1>
       <p className={`${standing.cls} small`} style={{ fontWeight: 500 }}>● {standing.text}</p>
       <p className="small muted">
-        {p.verified ? 'A real, unique adult, verified with Self in zero knowledge.' : 'Identity check not current.'} Member since {month(p.memberSince)}
+        {p.verifiedBy === 'testnet-skip'
+          ? 'Testnet test account: the identity check was skipped.'
+          : p.verified ? 'A real, unique adult, verified with Self in zero knowledge.' : 'Identity check not current.'}{' '}
+        Member since {month(p.memberSince)}
         {p.firstLineAt ? ` · first card ${month(p.firstLineAt)}` : ''}.
       </p>
 
@@ -84,8 +88,11 @@ export default function CreditFile() {
           <ul className="list">
             {p.attestationTx && (
               <li>
-                <span className="ic" aria-hidden>✓</span>
-                <span className="grow"><b>Self verification</b><small>Recorded in the KEYKARD registry</small></span>
+                <span className="ic" aria-hidden>{p.verifiedBy === 'testnet-skip' ? '○' : '✓'}</span>
+                <span className="grow">
+                  <b>{p.verifiedBy === 'testnet-skip' ? 'Test identity (testnet)' : 'Self verification'}</b>
+                  <small>Recorded in the KEYKARD registry</small>
+                </span>
                 <span className="amt"><a href={`${ex}/tx/${p.attestationTx}`} target="_blank" rel="noreferrer">Proof ↗</a></span>
               </li>
             )}
