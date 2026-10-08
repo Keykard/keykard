@@ -18,7 +18,7 @@ import { CardFlowSheet, type FlowState } from '@/ui/CardFlowSheet'
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫']
 
 export default function Pay() {
-  const params = useLocalSearchParams<{ code?: string }>()
+  const params = useLocalSearchParams<{ code?: string; amount?: string }>()
   const { me, cfg, refresh } = useSession()
   const [code, setCode] = useState('')
   const [merchant, setMerchant] = useState<string | null | ''>(null) // null unknown · '' not found · label
@@ -31,7 +31,8 @@ export default function Pay() {
 
   useEffect(() => {
     if (params.code) setCode(String(params.code).toUpperCase())
-  }, [params.code])
+    if (params.amount && /^\d{1,6}(\.\d{1,2})?$/.test(String(params.amount))) setAmount(String(params.amount))
+  }, [params.code, params.amount])
 
   useEffect(() => {
     setMerchant(null)
@@ -60,7 +61,7 @@ export default function Pay() {
     }
   }, [amount])
   const over = base > spendable
-  const frozen = !line || line.status !== 'active'
+  const frozen = !line || line.status !== 'active' || Boolean(line.userFrozen)
 
   const press = (k: string) => {
     Haptics.selectionAsync().catch(() => {})
@@ -107,7 +108,7 @@ export default function Pay() {
         <Text v="h1">Pay</Text>
         <Link title="Close" onPress={() => router.back()} />
       </Row>
-      {frozen && <Banner kind="error">Your card isn’t active right now. Check the message on your home screen.</Banner>}
+      {frozen && <Banner kind="error">{line?.userFrozen ? 'Your card is frozen. Unfreeze it on your home screen to pay.' : 'Your card isn’t active right now. Check the message on your home screen.'}</Banner>}
 
       <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-end' }}>
         <View style={{ flex: 1 }}>

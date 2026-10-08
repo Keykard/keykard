@@ -7,7 +7,10 @@ import { env, excludedCountries, net, passkeyRpId, publicWebOrigin, tiers, webOr
 import { treasury } from './chain'
 import { audit, sql } from './db'
 import { issueChallenge, issueRegistrationChallenge, mintSession, readSession, verifyAssertion, verifyKeyRegistration, verifyRegistration, walletFromPasskey } from './auth'
-import { UserError, lineView, openLine, prepareLine, freezeLine } from './lines'
+import { UserError, lineView, openLine, prepareLine, freezeLine, setUserFrozen } from './lines'
+import { publicProfile, setPublicProfile } from './profile'
+import { confirmEarn, earnTerms, earnView, earnWithdrawCalls, prepareEarn, releaseEarn } from './earncollateral'
+import { withLine } from './linelock'
 import { confirmGuarantee, createInvite, getInvite, prepareGuarantee } from './guarantee'
 import { selfEnabled, startSelfSession, handleSelfWebhook, devVerify, devVerifyEnabled } from './self'
 import { stats } from './stats'
@@ -71,6 +74,8 @@ app.get('/api/config', async (c) => {
     // published pricing for missed payments (read from the CreditTerms contract); on time = 0%
     terms: await publishedTerms().catch(() => null),
     maxSecured: env.MAX_SECURED.toString(),
+    // collateral that earns (Tempo Earn); `simulated` = testnet demo venue, its yield is topped up by KEYKARD
+    earn: earnTerms(),
     treasury: treasury.address,
     settlement: settlement.address,
     tiers: tiers.map(String),
@@ -279,7 +284,7 @@ app.post('/api/self/webhook', async (c) => {
 // ---------------- me ----------------
 app.get('/api/me', requireSession, async (c) => {
   const wallet = c.get('wallet')
-  const [u] = await sql`SELECT wallet, role, key_type, username, residence_country, created_at FROM users WHERE wallet=${wallet}`
+  const [u] = await sql`SELECT wallet, role, key_type, username, residence_country, public_profile, created_at FROM users WHERE wallet=${wallet}`
   const [a] = await sql`SELECT flags, expires_at, tx_hash FROM attestations WHERE wallet=${wallet}`
   const [s] = await sql`SELECT status, updated_at FROM self_sessions WHERE wallet=${wallet} ORDER BY created_at DESC LIMIT 1`
   const [l] = await sql`SELECT id FROM lines WHERE borrower_wallet=${wallet} ORDER BY created_at DESC LIMIT 1`
@@ -296,9 +301,17 @@ app.get('/api/me', requireSession, async (c) => {
     },
     line: l ? await lineView(l.id) : null,
     collateral: l && u?.role === 'borrower' ? await collateralView(wallet).catch(() => null) : null,
+    earn: l && u?.role === 'borrower' ? await earnView(wallet).catch(() => null) : null,
     security: u ? await securityView(wallet) : null,
     guaranteeing,
   })
+})
+
+// shareable credit file: opt-in, off by default
+app.get('/api/profiles/:username', async (c) => c.json(await publicProfile(c.req.param('username'))))
+app.post('/api/me/profile', requireSession, async (c) => {
+  const { public: on } = z.object({ public: z.boolean() }).parse(await c.req.json())
+  return c.json(await setPublicProfile(c.get('wallet'), on))
 })
 
 // accounts created before usernames existed can pick one once
@@ -369,6 +382,17 @@ app.post('/api/collateral/release', requireSession, async (c) => {
   return c.json(await releaseCollateral(c.get('wallet'), BigInt(amount)))
 })
 
+// ---- collateral that earns (Earn shares locked in a second CollateralVault) ----
+app.post('/api/earn/prepare', requireSession, async (c) => {
+  const { amount } = usdAmount.parse(await c.req.json())
+  return c.json(await prepareEarn(c.get('wallet'), BigInt(amount)))
+})
+app.post('/api/earn/confirm', requireSession, async (c) => {
+  const { keyAuthorization } = z.object({ keyAuthorization: z.string().regex(/^0x[0-9a-fA-F]+$/).optional() }).parse(await c.req.json().catch(() => ({})))
+  return c.json(await confirmEarn(c.get('wallet'), keyAuthorization as Hex | undefined))
+})
+app.post('/api/earn/release', requireSession, async (c) => c.json(await releaseEarn(c.get('wallet'))))
+app.post('/api/earn/withdraw', requireSession, async (c) => c.json(await earnWithdrawCalls(c.get('wallet'))))
 app.post('/api/lines/mandate/renew', requireSession, async (c) => c.json(await renewMandate(c.get('wallet'))))
 app.post('/api/lines/mandate/renew/confirm', requireSession, async (c) => {
   const { keyAuthorization } = optionalKa.parse(await c.req.json())
@@ -418,6 +442,17 @@ app.post('/api/card/challenge', requireSession, (c) => c.json(cardChallenge(c.ge
 app.post('/api/card/link', requireSession, async (c) => {
   const b = z.object({ cardAddress: addr, signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/) }).parse(await c.req.json())
   return c.json(await linkCard({ wallet: c.get('wallet'), cardAddress: b.cardAddress, signature: b.signature as Hex }))
+})
+/** Run a borrower action under their line's lock (no racing a bill or a payment). */
+async function withLineOf<T>(wallet: Address, fn: () => Promise<T>) {
+  const [l] = await sql`SELECT id FROM lines WHERE borrower_wallet=${wallet.toLowerCase()} ORDER BY created_at DESC LIMIT 1`
+  return l ? withLine(l.id, fn) : fn()
+}
+
+// freeze / unfreeze every way to pay (phone keys + physical card); bills and auto-pay carry on
+app.post('/api/lines/freeze', requireSession, async (c) => {
+  const { frozen } = z.object({ frozen: z.boolean() }).parse(await c.req.json())
+  return c.json(await withLineOf(c.get('wallet'), () => setUserFrozen(c.get('wallet'), frozen)))
 })
 app.post('/api/card/freeze', requireSession, async (c) => c.json(await setCardFrozen(c.get('wallet'), true)))
 app.post('/api/card/unfreeze', requireSession, async (c) => c.json(await setCardFrozen(c.get('wallet'), false)))

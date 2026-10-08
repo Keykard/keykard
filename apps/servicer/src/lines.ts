@@ -324,6 +324,8 @@ async function spendKeys(row: any): Promise<string[]> {
 
 /** Sets the card keys' per-period limit (used on tier upgrades). */
 export async function setSpendLimit(row: any, newLimit: bigint) {
+  const [f] = await sql`SELECT user_frozen FROM lines WHERE id=${row.id}`
+  if (f?.user_frozen) newLimit = 0n
   for (const k of await spendKeys(row)) await updateKeyLimit(row, k, newLimit)
 }
 
@@ -345,7 +347,7 @@ export async function syncSpendKeys(wallet: Address) {
   )
   const existing = (await sql`SELECT key_id FROM line_spend_keys WHERE line_id=${row.id} AND status='active'`).map((r) => lower(r.key_id))
   const creditRoot = Account.fromSecp256k1(open(row.credit_root_enc))
-  const limit = row.status === 'active' ? BigInt(row.credit_limit) : 0n
+  const limit = row.status === 'active' && !row.user_frozen ? BigInt(row.credit_limit) : 0n
   const pol = spendKeyPolicy({ token: net.token, limit, period: row.period_seconds, merchants: await activeMerchants(), expiry: Math.floor(new Date(row.term_end).getTime() / 1000) })
   for (const d of desired) {
     if (existing.includes(d.keyId)) continue
@@ -382,6 +384,9 @@ export async function syncSpendKeys(wallet: Address) {
  * 'blocked' = on-chain limit 0 (grace, frozen, defaulted). 'normal' = line limit / card tap limit.
  */
 export async function applyLimits(row: any, mode: 'normal' | 'blocked') {
+  // a card the cardholder froze stays at 0 whatever else restores limits (repayments, cashback, upgrades)
+  const [f] = await sql`SELECT user_frozen FROM lines WHERE id=${row.id}`
+  if (f?.user_frozen) mode = 'blocked'
   const spend = mode === 'normal' ? BigInt(row.credit_limit) : 0n
   for (const k of await spendKeys(row)) await updateKeyLimit(row, k, spend)
   if (row.card_key_id && row.card_status === 'active') {
@@ -438,6 +443,7 @@ export async function lineView(id: number | bigint) {
     mandateActive,
     settledAt: row.settled_at,
     card: row.card_key_id ? { address: row.card_key_id as Address, limit: String(row.card_limit), status: row.card_status } : null,
+    userFrozen: Boolean(row.user_frozen),
     token: row.token as Address,
     limit: limit.toString(),
     available: s(available),
@@ -461,10 +467,32 @@ export async function lineView(id: number | bigint) {
     repayAccount: (row.repay_account as Address | null) ?? null,
     secured: String(row.secured ?? 0),
     unsecuredLimit: (limit - BigInt(row.secured ?? 0)).toString(),
+    securedEarn: String(row.secured_earn ?? 0),
     // rewards: on-time streak toward the next fee shield, and shields held (0 or 1)
     onTimeStreak: Number(row.on_time_streak ?? 0),
     feeShields: Number(row.fee_shields ?? 0),
     periodSeconds: row.period_seconds,
     termEnd: row.term_end,
   }
+}
+
+/**
+ * "Freeze my card": every key that can pay (phone keys and the physical card) drops to a 0 limit on-chain, so Tempo
+ * itself refuses payments. Auto-pay, bills and the credit line are untouched. Unfreezing restores the limits if the
+ * line is in good standing.
+ */
+export async function setUserFrozen(wallet: Address, frozen: boolean) {
+  const [row] = await sql`SELECT * FROM lines WHERE borrower_wallet=${lower(wallet)} AND status IN ('active','grace','frozen')
+                          ORDER BY created_at DESC LIMIT 1`
+  if (!row) throw new UserError('no active card', 404)
+  await sql`UPDATE lines SET user_frozen=${frozen}, updated_at=now() WHERE id=${row.id}`
+  const [fresh] = await sql`SELECT * FROM lines WHERE id=${row.id}`
+  try {
+    await applyLimits(fresh, frozen || fresh.status !== 'active' ? 'blocked' : 'normal')
+  } catch (e) {
+    if (!frozen) await sql`UPDATE lines SET user_frozen=true WHERE id=${row.id}` // couldn't restore: stay frozen, consistently
+    throw e
+  }
+  await audit({ lineId: row.id, actor: 'borrower', action: frozen ? 'card.user_frozen' : 'card.user_unfrozen' })
+  return lineView(row.id)
 }

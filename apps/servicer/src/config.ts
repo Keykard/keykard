@@ -58,6 +58,11 @@ const Env = z.object({
   MERCHANT_FEE_BPS: z.coerce.number().int().min(0).max(500).default(100),
   BASE_CASHBACK_BPS: z.coerce.number().int().min(0).max(500).default(50),
   SHIELD_EVERY: z.coerce.number().int().positive().default(3),
+  // collateral that earns (earncollateral.ts): limit given per $1 of Earn collateral value (buffer against value
+  // moves), and on testnet only, the simulated yield KEYKARD tops the demo venue up with (0 turns it off)
+  EARN_LTV_BPS: z.coerce.number().int().min(1000).max(10_000).default(9500),
+  EARN_SIM_APR_BPS: z.coerce.number().int().min(0).max(2000).default(500),
+  EARN_SIM_EVERY_SECONDS: z.coerce.number().int().positive().default(3600),
   ON_TIME_TO_UPGRADE: z.coerce.number().int().positive().default(2),
   // Comma-separated ISO-3 residence countries refused at signup. Empty during the hackathon pilot (team decision
   // 2026-09-29). Set to 'IND' before any public launch unless a legal opinion says otherwise.
@@ -83,6 +88,17 @@ export const net: Network = getNetwork(env.TEMPO_NETWORK, {
   deployBlock: deployed.deployBlock ? BigInt(deployed.deployBlock) : undefined,
 })
 if (!net.registry || !net.lineBook) throw new Error(`no deployment found at ${deploymentsFile}`)
+
+/** Collateral that earns: a Tempo Earn vault and the CollateralVault that holds its shares (null until deployed). */
+export const earn = deployed.earnVault && deployed.earnShare && deployed.earnCollateralVault
+  ? {
+      vault: deployed.earnVault as Address,
+      share: deployed.earnShare as Address,
+      collateral: deployed.earnCollateralVault as Address,
+      // testnet demo venue whose yield is simulated (DemoYieldVenue); null on mainnet, where the venue is real
+      simVenue: (env.TEMPO_NETWORK === 'testnet' ? deployed.yieldVenue ?? null : null) as Address | null,
+    }
+  : null
 
 /** Origins as browsers send them: no trailing slash, no path. */
 export const webOrigins = env.WEB_ORIGINS.split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean)

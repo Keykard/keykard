@@ -9,5 +9,5 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["src", "test"], "exclude": ["test/browser.ts", "test/browser-auth.ts"]
+  "include": ["src", "test"], "exclude": ["test/browser.ts", "test/browser-auth.ts", "test/browser-features.ts"]
 }

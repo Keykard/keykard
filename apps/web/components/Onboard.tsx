@@ -11,10 +11,11 @@ import { selfStatusMessage } from '@keycard/sdk'
 
 type Role = 'borrower' | 'guarantor' | 'merchant'
 export type Me = {
-  user: { wallet: Address; role: Role; username?: string | null } | null
+  user: { wallet: Address; role: Role; username?: string | null; public_profile?: boolean } | null
   identity: { verified: boolean; attestationTx: string | null; selfStatus: string | null }
   line: any
   collateral?: { vault: string; deposited: string; locked: string; available: string; max: string } | null
+  earn?: import('./EarnCollateral').EarnPosition | null
   security?: Security | null
   guaranteeing: any[]
 }

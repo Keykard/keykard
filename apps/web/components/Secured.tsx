@@ -14,6 +14,7 @@ export function Secured({ line, collateral, cfg, walletBal, onChange }: { line: 
   const [msg, setMsg] = useState<string | null>(null)
   if (!cfg.collateralVault || !collateral || !['active', 'grace', 'frozen'].includes(line.status)) return null
   const secured = BigInt(line.secured ?? 0)
+  const plain = secured - BigInt(line.securedEarn ?? 0) // the Earn part unlocks in its own panel
   const max = BigInt(cfg.maxSecured ?? 0)
   const unlocked = BigInt(collateral.available ?? 0) // released earlier but not yet withdrawn
   const active = line.status === 'active'
@@ -69,7 +70,7 @@ export function Secured({ line, collateral, cfg, walletBal, onChange }: { line: 
         </button>
         <button
           className="ghost"
-          disabled={!active || busy !== null || base <= 0n || base > secured}
+          disabled={!active || busy !== null || base <= 0n || base > plain}
           onClick={run('out', () => withdrawCollateral(base), `Unlocked ${usd(base)} and sent it back to your wallet.`)}
         >
           {busy === 'out' ? 'Working…' : 'Unlock'}

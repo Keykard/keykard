@@ -10,6 +10,7 @@ import { signOut, signerKind, startOver } from '@/lib/wallet'
 import { Button, Link, ListRow, Panel, Row, Screen, Text } from '@/ui/kit'
 import { RolePill, displayName } from '@/ui/Account'
 import { SecureNudge, SecurityPanel } from '@/ui/Security'
+import { CreditFileShare } from '@/ui/CreditFileShare'
 import { color } from '@/ui/theme'
 
 export default function Settings() {
@@ -40,9 +41,12 @@ export default function Settings() {
 
       <SecureNudge username={me?.user?.username} sec={me?.security} onChange={() => void refresh()} />
       <SecurityPanel username={me?.user?.username} sec={me?.security} onChange={() => void refresh()} />
+      {me?.user?.role === 'borrower' && me.user.username && (
+        <CreditFileShare username={me.user.username} on={Boolean(me.user.public_profile)} web={web} onChange={() => void refresh()} />
+      )}
 
       <Panel>
-        <ListRow icon="◆" title="Public credit file" sub="Every line event, on-chain" onPress={() => WebBrowser.openBrowserAsync(`${web}/stats`)} />
+        <ListRow icon="◆" title="KEYKARD, live" sub="Network-wide numbers, every event on-chain" onPress={() => WebBrowser.openBrowserAsync(`${web}/stats`)} />
         {me?.line?.creditAccount && cfg && (
           <ListRow icon="◈" title="Your card on the explorer" sub={short(me.line.creditAccount)} onPress={() => WebBrowser.openBrowserAsync(`${cfg.explorerUrl}/address/${me.line!.creditAccount}`)} />
         )}

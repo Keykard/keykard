@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Go } from '@/ui/Go'
-import { Pressable, RefreshControl, ScrollView, View } from 'react-native'
+import { Alert, Pressable, RefreshControl, ScrollView, View } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import * as WebBrowser from 'expo-web-browser'
+import * as Haptics from 'expo-haptics'
 import { api } from '@/lib/api'
 import { usd } from '@/lib/format'
 import { homeFor, useSession } from '@/lib/session'
@@ -71,8 +72,9 @@ export default function Home() {
   if (!me?.line || !cfg) return <SafeAreaView style={{ flex: 1, backgroundColor: color.bg }} />
 
   const line = me.line
-  const skin: Skin = (line.status in skins ? line.status : 'active') as Skin
-  const frozen = line.status !== 'active'
+  const userFrozen = Boolean(line.userFrozen)
+  const skin: Skin = (userFrozen && line.status === 'active' ? 'frozen' : line.status in skins ? line.status : 'active') as Skin
+  const frozen = line.status !== 'active' || userFrozen
   const receipt = (tx: string) => WebBrowser.openBrowserAsync(`${cfg.explorerUrl}/tx/${tx}`, { toolbarColor: color.bg })
   const spends = act?.spends ?? []
   const repaid = (act?.movements ?? []).filter((m) => m.status === 'confirmed' && m.kind in REPAID)
@@ -116,6 +118,8 @@ export default function Home() {
           badge={skins[skin].label}
           last4={line.creditAccount.slice(-4)}
         />
+
+        {['active', 'grace', 'frozen'].includes(line.status) && <FreezeRow frozen={userFrozen} onChange={load} />}
 
         <Row style={{ marginTop: 22, marginBottom: 4, gap: 0 }}>
           <Action testID="home-pay" icon="↗" label="Pay" primary disabled={frozen} onPress={() => router.push('/pay')} />
@@ -190,5 +194,42 @@ function UsernameSetter({ onSet }: { onSet: () => void }) {
         }
       }} />
     </Banner>
+  )
+}
+
+/** Freeze / unfreeze every way to pay (phone keys + physical card) on-chain; bills and auto-pay carry on. */
+function FreezeRow({ frozen, onChange }: { frozen: boolean; onChange: () => Promise<void> | void }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const toggle = async () => {
+    setErr(null)
+    setBusy(true)
+    try {
+      await api('/api/lines/freeze', { body: { frozen: !frozen } })
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+      await onChange()
+    } catch (e: any) {
+      setErr(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const ask = () =>
+    frozen
+      ? toggle()
+      : Alert.alert('Freeze your card?', 'Every payment, from this phone and your physical card, is refused until you unfreeze. Bills and auto-pay carry on as normal.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Freeze', style: 'destructive', onPress: () => void toggle() },
+        ])
+  return (
+    <View style={{ marginTop: 12 }}>
+      <Row between>
+        <Text v="small" style={{ flex: 1, color: frozen ? color.text : color.text3 }}>
+          {frozen ? '❄ Frozen by you: Tempo refuses every payment from this card.' : 'Lost your phone or card? Freeze it in one tap.'}
+        </Text>
+        <Button testID="home-freeze" title={busy ? (frozen ? 'Unfreezing…' : 'Freezing…') : frozen ? 'Unfreeze' : 'Freeze card'} kind={frozen ? 'primary' : 'quiet'} small busy={busy} onPress={ask} />
+      </Row>
+      {err && <Banner kind="error">{err}</Banner>}
+    </View>
   )
 }

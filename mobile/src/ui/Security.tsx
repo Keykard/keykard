@@ -88,7 +88,7 @@ export function SecureNudge({ username, sec, onChange }: { username?: string | n
   return null
 }
 
-function Switch({ on, disabled, onPress, testID }: { on: boolean; disabled?: boolean; onPress: () => void; testID?: string }) {
+export function Switch({ on, disabled, onPress, testID }: { on: boolean; disabled?: boolean; onPress: () => void; testID?: string }) {
   return (
     <Pressable testID={testID} accessibilityRole="switch" accessibilityState={{ checked: on, disabled }} disabled={disabled} onPress={onPress}
       style={{ width: 48, height: 28, borderRadius: 14, padding: 3, backgroundColor: on ? color.ok : 'rgba(255,255,255,0.16)', opacity: disabled ? 0.45 : 1 }}>

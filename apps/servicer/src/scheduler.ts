@@ -7,6 +7,7 @@ import { applyLimits, freezeLine, moveOnce, setSpendLimit } from './lines'
 import { open } from './vault'
 import { accruePenalties, allocate, feesPaid, onMissed, stopPenaltyClock } from './charges'
 import { seizeCollateralOnDefault } from './collateral'
+import { seizeEarnOnDefault, simulateEarnYield } from './earncollateral'
 import { applyExternalRepayments } from './repay'
 import { withLine } from './linelock'
 import { completeRecoveries } from './recovery'
@@ -171,6 +172,7 @@ export async function defaultLine(fresh: any, unpaid: bigint) {
   await audit({ lineId: fresh.id, actor: 'servicer', action: 'line.defaulted', detail: { unpaid } })
   // a secured line: the vault releases locked collateral to cover what's owed (only possible once LineBook says Defaulted)
   await seizeCollateralOnDefault(fresh.id).catch((e) => console.error('[default] collateral seize failed', fresh.id, e?.shortMessage ?? e?.message ?? e))
+  await seizeEarnOnDefault(fresh.id).catch((e) => console.error('[default] earn collateral seize failed', fresh.id, e?.shortMessage ?? e?.message ?? e))
 }
 
 /** Line overdue (status 'grace', or 'frozen' with an amount due): retry borrower; after grace, guarantor; else default. */
@@ -268,6 +270,7 @@ export async function tick() {
     await accruePenalties().catch((e) => console.error('penalties failed', e))
     await completeRecoveries().catch((e) => console.error('recoveries failed', e))
     await autoCollectDefaulted().catch((e) => console.error('default auto-collect failed', e))
+    await simulateEarnYield().catch((e) => console.error('simulated earn yield failed', e?.shortMessage ?? e?.message ?? e))
     const overdue = await sql`
       SELECT id FROM lines WHERE status='grace' OR (status='frozen' AND grace_until IS NOT NULL AND amount_due > 0)
       ORDER BY grace_until LIMIT 50`

@@ -106,8 +106,10 @@ function Register({ onDone }: { onDone: () => void }) {
 
 function Till({ dash, explorer, web, onPaid }: { dash: Dash; explorer?: string; web: string; onPaid: () => void }) {
   const session = useSession()
-  const payLink = `${web}/card?pay=${dash.merchant.code}`
   useReaderGuard()
+  const [ask, setAsk] = useState('')
+  const askOk = /^\d{1,6}(\.\d{1,2})?$/.test(ask) && Number(ask) > 0
+  const payLink = `${web}/card?pay=${dash.merchant.code}${askOk ? `&amount=${ask}` : ''}`
   const [amount, setAmount] = useState('')
   const [nfc, setNfc] = useState<'ok' | 'off' | 'none' | null>(null)
   const [flow, setFlow] = useState<{ state: FlowState; amount: bigint; error?: string; hash?: string; card?: string } | null>(null)
@@ -155,8 +157,16 @@ function Till({ dash, explorer, web, onPaid }: { dash: Dash; explorer?: string; 
         <View style={{ padding: 14, backgroundColor: '#fff', borderRadius: 20, marginTop: 14 }}>
           <QRCode value={payLink} size={200} backgroundColor="#fff" color="#0A0A0B" />
         </View>
-        <Text v="small" style={{ marginTop: 12 }}>Customers scan this with the KEYKARD app or their camera.</Text>
-        <Button title="Share pay link" small kind="quiet" style={{ marginTop: 12 }} onPress={() => Share.share({ message: `Pay ${dash.merchant.label} with KEYKARD: ${payLink}` })} />
+        <Text v="small" style={{ marginTop: 12, textAlign: 'center' }}>
+          {askOk ? `Asking for ${usd(toBase(ask))}. The customer's app opens with this amount filled in.` : 'Customers scan this with the KEYKARD app or their camera.'}
+        </Text>
+        <View style={{ alignSelf: 'stretch' }}>
+          <Field testID="ask-amount" label="Ask for an amount (optional)" keyboardType="decimal-pad" placeholder="Any amount" value={ask} onChangeText={(t) => setAsk(t.replace(/[^0-9.]/g, ''))} />
+        </View>
+        <Row style={{ marginTop: 12 }}>
+          {askOk && <Button title="Clear" small kind="ghost" onPress={() => setAsk('')} />}
+          <Button title={askOk ? 'Share payment request' : 'Share pay link'} small kind="quiet" onPress={() => Share.share({ message: askOk ? `${dash.merchant.label} is asking for ${usd(toBase(ask))}. Pay with KEYKARD: ${payLink}` : `Pay ${dash.merchant.label} with KEYKARD: ${payLink}` })} />
+        </Row>
       </Panel>
 
       <Panel>

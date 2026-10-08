@@ -11,9 +11,18 @@
     "registry": "0x8476ce89e40fe98c795d46d357ddc27c1b320f3732191d06982b02af80c5fa6f",
     "lineBook": "0x377e3209b7fa3cd9fcdbd240bf75481e46498e69ca9201c88e89c98c55e23703",
     "creditTerms": "0x152874cd654536d1bc4d772ae895d24ef33f4186957b20b0da932b60f2e08187",
-    "collateralVault": "0x704a3fec59389b1a4c5dd39a03b16639e55ac8c8c672a2a8abc0e0fcec1ef278"
+    "collateralVault": "0x704a3fec59389b1a4c5dd39a03b16639e55ac8c8c672a2a8abc0e0fcec1ef278",
+    "yieldVenue": "0x78102f933eb9d55abe3fb7b9f076159a1235f080afe714d9e1d4cb1aa62c9b9a",
+    "earnCollateralVault": "0x426db8bf75151a0eec368caaef997c6fa86b19b81f58b61007c42cf791aa4ecc"
   },
   "deployedAt": "2026-09-28T16:44:43.767Z",
   "creditTerms": "0x666a756768cdb183523d9fb1151b038e9d136506",
-  "collateralVault": "0x2b273f09a4305ed94d3b21d1d69a55cf7bb60463"
+  "collateralVault": "0x2b273f09a4305ed94d3b21d1d69a55cf7bb60463",
+  "yieldVenue": "0x78461ac2d1e5cb53f216805dc4294b5cb662cd78",
+  "earnDeploymentId": "0x868d8c8ceff134f403541cfcd3eb538259cd05c356ec406275cbfa97002b5c77",
+  "earnVault": "0xd976eca4cf12bfd8d3e3d51d3278a00ff6e9ad5b",
+  "earnShare": "0x20c00000000000000000000092bfd9fb3b798f44",
+  "earnEngine": "0xf95730e90829c71787a87713848f1eb1f1527b12",
+  "earnAdmin": "0xC9fe03055e54d9F02156C954e8D8f38FDF1CF036",
+  "earnCollateralVault": "0x74e8ec293cf19c5a5d077ff8e81ecbdb8ab4d7e3"
 }

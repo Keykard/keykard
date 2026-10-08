@@ -378,3 +378,40 @@ export async function withdrawCollateral(amount: bigint, alreadyReleased = false
   if (r.status !== 'success') throw new Error('The withdrawal did not go through.')
   return r.transactionHash as Hex
 }
+
+// ---- collateral that earns: the servicer builds the calls (Tempo Earn deposit + lock), the wallet signs them ----
+type EarnCall = { to: Address; data: Hex }
+async function signCalls(calls: EarnCall[], failed: string) {
+  if (calls.length === 0) return null
+  const s = await getSigner()
+  const client = await relayClient(rootAccount(s))
+  const r = (await sendTransactionSync(client, { calls, feePayer: true, ...slowSignerNonce() } as any)) as any
+  if (r.status !== 'success') throw new Error(failed)
+  return r.transactionHash as Hex
+}
+
+/** Put `amount` into the Tempo Earn vault and lock the shares: one signature (two if a bigger auto-pay is needed). */
+export async function lockAndEarn(amount: bigint) {
+  const s = await getSigner()
+  const prep = await api<{ calls: EarnCall[]; mandate: MandateTerms | null; credit: string }>('/api/earn/prepare', { body: { amount: amount.toString() } })
+  let granted: { keyAuthorization?: Hex } = {}
+  if (prep.mandate) {
+    const cfg = await getConfig()
+    const m = prep.mandate
+    granted = await grant(s, m.keyId, mandateKeyPolicy({ token: cfg.token, instalment: BigInt(m.cap), period: m.periodSeconds, repayTo: m.recipient, expiry: m.expiry }))
+  }
+  await signCalls(prep.calls, 'The deposit did not go through.')
+  return api('/api/earn/confirm', { body: granted })
+}
+
+/** Unlock all Earn collateral (the limit drops by what it added), then redeem it to stablecoins in the wallet. */
+export async function unlockEarn() {
+  const r = await api<{ calls: EarnCall[] }>('/api/earn/release', { method: 'POST' })
+  return signCalls(r.calls, 'The withdrawal did not go through.')
+}
+
+/** Redeem Earn shares that are unlocked but still in the vault or wallet (e.g. returned after a default). */
+export async function withdrawEarn() {
+  const r = await api<{ calls: EarnCall[] }>('/api/earn/withdraw', { method: 'POST' })
+  return signCalls(r.calls, 'The withdrawal did not go through.')
+}

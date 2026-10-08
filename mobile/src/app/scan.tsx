@@ -4,7 +4,7 @@ import { router } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { codeFromQr } from '@/lib/qr'
+import { amountFromQr, codeFromQr } from '@/lib/qr'
 import { Button, Link, Text } from '@/ui/kit'
 import { color } from '@/ui/theme'
 
@@ -39,7 +39,8 @@ export default function Scan() {
           }
           done.current = true
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
-          router.navigate({ pathname: '/pay', params: { code } })
+          const amount = amountFromQr(data)
+          router.navigate({ pathname: '/pay', params: amount ? { code, amount } : { code } })
         }}
       />
       <SafeAreaView style={{ flex: 1, justifyContent: 'space-between', padding: 24 }}>

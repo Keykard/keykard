@@ -13,7 +13,9 @@ import { LineStatus } from '@/components/LineStatus'
 import { UsernameBanner } from '@/components/UsernameBanner'
 import { TermsNote } from '@/components/TermsNote'
 import { Secured } from '@/components/Secured'
+import { EarnCollateral } from '@/components/EarnCollateral'
 import { SecureNudge, SecurityPanel } from '@/components/Security'
+import { CreditFileShare } from '@/components/CreditFileShare'
 import { MERCHANT_CODE_RE } from '@keycard/sdk'
 import type { Me } from '@/components/Onboard'
 
@@ -52,8 +54,11 @@ export default function CardPage() {
   }, [router])
 
   useEffect(() => {
-    const code = new URLSearchParams(window.location.search).get('pay')
+    const q = new URLSearchParams(window.location.search)
+    const code = q.get('pay')
     if (code) setMerchant(code.toUpperCase())
+    const asked = q.get('amount')
+    if (code && asked && /^\d{1,6}(\.\d{1,2})?$/.test(asked) && Number(asked) > 0) setAmount(asked)
   }, [])
 
   useEffect(() => {
@@ -75,7 +80,24 @@ export default function CardPage() {
   }, [load])
 
   const line = me?.line
-  const frozen = line && line.status !== 'active'
+  const userFrozen = Boolean(line?.userFrozen)
+  const frozen = line && (line.status !== 'active' || userFrozen)
+  const [freezing, setFreezing] = useState(false)
+  const toggleFreeze = async () => {
+    if (!userFrozen && !confirm('Freeze your card? Every payment (phone and physical card) is refused until you unfreeze. Bills and auto-pay carry on as normal.')) return
+    setErr(null)
+    setMsg(null)
+    setFreezing(true)
+    try {
+      await api('/api/lines/freeze', { body: { frozen: !userFrozen } })
+      setMsg(userFrozen ? 'Card unfrozen. You can pay again.' : 'Card frozen. Payments are refused until you unfreeze it.')
+      await load()
+    } catch (e: any) {
+      setErr(e.message)
+    } finally {
+      setFreezing(false)
+    }
+  }
 
   const pay = async () => {
     setErr(null)
@@ -160,7 +182,7 @@ export default function CardPage() {
         <span className="chip" aria-hidden />
         <div className="foot">
           <span className="mono">{short(line.creditAccount)}</span>
-          <span className="badge">{(STATUS_LABEL[line.status] ?? line.status).toUpperCase()}</span>
+          <span className="badge">{userFrozen && line.status === 'active' ? 'FROZEN' : (STATUS_LABEL[line.status] ?? line.status).toUpperCase()}</span>
         </div>
         <div className="label">Available to spend</div>
         <div className="big">{usd(line.spendable)}</div>
@@ -168,6 +190,15 @@ export default function CardPage() {
           Limit {usd(line.limit)} · owed {usd(line.owed)}{BigInt(line.feesDue ?? 0) > 0n ? ` + ${usd(line.feesDue)} fees` : ''}
         </div>
       </div>
+
+      {['active', 'grace', 'frozen'].includes(line.status) && (
+        <div className="freeze-row">
+          <span className="small muted">{userFrozen ? '❄ Frozen by you: Tempo refuses every payment from this card.' : 'Lost your phone or card? Freeze it in one tap.'}</span>
+          <button className={userFrozen ? 'sm' : 'ghost sm'} disabled={freezing} onClick={toggleFreeze}>
+            {freezing ? (userFrozen ? 'Unfreezing…' : 'Freezing…') : userFrozen ? 'Unfreeze' : 'Freeze card'}
+          </button>
+        </div>
+      )}
 
       <nav className="actions" aria-label="Quick actions">
         <a href={frozen ? '#status' : '#pay'}><i aria-hidden>↗</i>Pay</a>
@@ -309,6 +340,8 @@ export default function CardPage() {
 
       <Secured line={line} collateral={me?.collateral} cfg={cfg} walletBal={walletBal} onChange={load} />
 
+      <EarnCollateral line={line} earn={me?.earn} cfg={cfg} walletBal={walletBal} onChange={load} />
+
       {me?.user && (
         <div id="add">
           <AddMoney wallet={me.user.wallet} balance={walletBal} cfg={cfg} onFunded={load} />
@@ -344,6 +377,8 @@ export default function CardPage() {
           </>
         )}
       </section>
+
+      {me?.user?.username && <CreditFileShare username={me.user.username} on={Boolean(me.user.public_profile)} onChange={load} />}
 
       {me?.user?.username && <SecurityPanel username={me.user.username} sec={me.security ?? null} onChange={load} />}
 

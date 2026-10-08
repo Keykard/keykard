@@ -137,6 +137,7 @@ label { display: block; font-size: 13px; font-weight: 500; color: var(--kc-text-
 .error b { color: #fff; }
 .ok { color: var(--kc-ok); }
 .warn { color: var(--kc-warn); }
+.bad { color: var(--kc-bad); }
 .consent { white-space: pre-wrap; font-size: 13.5px; line-height: 1.6; background: var(--kc-surface-2); border: 1px solid var(--kc-hairline); border-radius: 14px; padding: 14px; color: var(--kc-text-2); }
 .badge { font: 600 10.5px/1 var(--font-mono-stack); letter-spacing: 0.12em; padding: 5px 9px; border-radius: 99px; border: 1px solid currentColor; }
 
@@ -282,3 +283,13 @@ dialog.kc-dialog::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: bl
 .offer-card { padding: 14px; border-radius: 14px; border: 1px solid rgba(61, 220, 151, 0.35); background: rgba(61, 220, 151, 0.06); margin-top: 12px; }
 .budget-bar { height: 4px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); margin-top: 10px; overflow: hidden; }
 .budget-bar i { display: block; height: 100%; background: var(--kc-ok); }
+.freeze-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 2px 0; }
+.freeze-row .small { flex: 1; }
+button.linkish { all: unset; cursor: pointer; color: var(--kc-accent-hi); padding: 4px 2px; }
+button.linkish:focus-visible { outline: 2px solid var(--kc-accent-hi); outline-offset: 2px; border-radius: 4px; }
+
+/* collateral that earns */
+.earn-tag { font: 600 10.5px/1 var(--font-mono-stack); letter-spacing: 0.12em; text-transform: uppercase; padding: 5px 9px; border-radius: 99px; color: var(--kc-ok); border: 1px solid rgba(61, 220, 151, 0.4); }
+.earn-value { display: flex; flex-direction: column; gap: 4px; margin: 16px 0 6px; }
+.earn-value b { font-size: clamp(30px, 8vw, 40px); font-weight: 400; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
+.earn-sim { border-left: 2px solid var(--kc-warn); padding-left: 10px; color: var(--kc-text-2); }

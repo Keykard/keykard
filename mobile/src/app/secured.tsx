@@ -8,6 +8,7 @@ import { PasskeyCancelled } from '@/lib/passkey'
 import { addCollateral, explainChainError, tokenBalance, withdrawCollateral } from '@/lib/wallet'
 import { Banner, Button, Chip, Field, Link, Panel, Row, Screen, Text } from '@/ui/kit'
 import { color } from '@/ui/theme'
+import { EarnCollateral } from '@/ui/EarnCollateral'
 
 /**
  * A bigger limit, secured 1:1: lock your own stablecoins in the KEYKARD vault and the limit grows by the same
@@ -34,6 +35,7 @@ export default function Secured() {
   if (!cfg.collateralVault || !col) return <Screen><Link title="‹ Back" style={{ marginTop: 6 }} onPress={() => router.back()} /><Text style={{ marginTop: 18 }}>Secured limits aren’t available yet.</Text></Screen>
 
   const secured = BigInt(line.secured ?? '0')
+  const plain = secured - BigInt(line.securedEarn ?? '0') // the Earn part unlocks in its own panel
   const max = BigInt(cfg.maxSecured ?? '0')
   const unlocked = BigInt(col.available ?? '0')
   const active = line.status === 'active'
@@ -98,7 +100,7 @@ export default function Secured() {
           title={busy === 'out' ? 'Working…' : 'Unlock and withdraw'}
           kind="ghost"
           busy={busy === 'out'}
-          disabled={!active || !!busy || base <= 0n || base > secured}
+          disabled={!active || !!busy || base <= 0n || base > plain}
           style={{ marginTop: 10 }}
           onPress={run('out', () => withdrawCollateral(base), `Unlocked ${usd(base)} and sent it back to your wallet.`)}
         />
@@ -110,6 +112,8 @@ export default function Secured() {
 
       {err && <Banner kind="error">{err}</Banner>}
       {msg && <Banner kind="ok">{msg}</Banner>}
+
+      <EarnCollateral line={line} earn={me?.earn} cfg={cfg} bal={bal} onChange={async () => { await refresh(); loadBal() }} />
 
       <Panel>
         <Text v="h3">Who holds it</Text>

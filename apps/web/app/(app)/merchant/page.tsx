@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Onboard, type Me } from '@/components/Onboard'
 import { Qr, CopyText } from '@/components/Qr'
-import { api, getConfig, short, usd, type AppConfig } from '@/lib/api'
+import { api, getConfig, short, toBase, usd, type AppConfig } from '@/lib/api'
 import { signOut } from '@/lib/wallet'
 import { TapToCharge } from '@/components/TapToCharge'
 import { AccountBar, WrongAccount } from '@/components/AccountBar'
@@ -27,6 +27,7 @@ export default function MerchantPage() {
   const [cfg, setCfg] = useState<AppConfig | null>(null)
   const [dash, setDash] = useState<Dash | null>(null)
   const [label, setLabel] = useState('')
+  const [ask, setAsk] = useState('')
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -69,7 +70,8 @@ export default function MerchantPage() {
     }
   }
 
-  const payLink = dash && typeof window !== 'undefined' ? `${window.location.origin}/card?pay=${dash.merchant.code}` : ''
+  const askOk = /^\d{1,6}(\.\d{1,2})?$/.test(ask) && Number(ask) > 0
+  const payLink = dash && typeof window !== 'undefined' ? `${window.location.origin}/card?pay=${dash.merchant.code}${askOk ? `&amount=${ask}` : ''}` : ''
 
   return (
     <main className="wrap">
@@ -109,8 +111,17 @@ export default function MerchantPage() {
             <span className="eyebrow">Your merchant code</span>
             <div className="code">{dash.merchant.code}</div>
             <Qr value={payLink} size={220} />
-            <p className="small muted">Customers scan this to pay you.</p>
-            <CopyText text={payLink} label="Copy pay link" />
+            <p className="small muted">
+              {askOk ? `Asking for ${usd(toBase(ask))}. The customer’s card opens with this amount filled in.` : 'Customers scan this to pay you.'}
+            </p>
+            <div className="row between" style={{ width: '100%', alignItems: 'baseline' }}>
+              <label htmlFor="ask">Ask for an amount (optional)</label>
+              {ask && <button className="linkish small" onClick={() => setAsk('')}>Clear</button>}
+            </div>
+            <input id="ask" inputMode="decimal" placeholder="Any amount" value={ask} onChange={(e) => setAsk(e.target.value.replace(/[^0-9.]/g, ''))} />
+            <div style={{ marginTop: 12, width: '100%' }}>
+              <CopyText text={payLink} label={askOk ? 'Copy request' : 'Copy pay link'} />
+            </div>
           </div>
           <TapToCharge merchantCode={dash.merchant.code} onPaid={() => setTimeout(load, 3000)} />
           <MerchantOffer offer={dash.offer} stats={dash.stats} feeBps={dash.feeBps} onChange={load} />

@@ -55,6 +55,8 @@ export type AppConfig = {
   tokenSymbol: string
   tokenDecimals: number
   treasury: `0x${string}`
+  registry?: `0x${string}`
+  lineBook?: `0x${string}`
   settlement: `0x${string}`
   tiers: string[]
   periodSeconds: number
@@ -70,6 +72,8 @@ export type AppConfig = {
   /** Published pricing for missed payments, read from the CreditTerms contract. On time = 0%. */
   terms?: { lateFee: string; penaltyBpsPerPeriod: number; capBps: number; address: string } | null
   maxSecured?: string
+  /** Collateral that earns (Tempo Earn). `simulated`: testnet demo vault whose yield KEYKARD tops up. */
+  earn?: { vault: `0x${string}`; share: `0x${string}`; collateralVault: `0x${string}`; ltvBps: number; simulated: boolean } | null
 }
 
 let configPromise: Promise<AppConfig> | null = null

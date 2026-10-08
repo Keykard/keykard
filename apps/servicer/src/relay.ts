@@ -2,7 +2,7 @@ import type { Address } from 'viem'
 import { Transaction } from 'viem/tempo'
 import { Handler } from 'tempo.ts/server'
 import { ACCOUNT_KEYCHAIN } from '@keycard/sdk'
-import { env, net, webOrigins } from './config'
+import { earn, env, net, webOrigins } from './config'
 import { publicClient, treasury } from './chain'
 import { sql } from './db'
 
@@ -42,7 +42,9 @@ export async function checkRelayPolicy(serialized: `0x${string}`) {
     const noop = /^0x0{40}$/.test(to) && (!c.data || c.data === '0x') && !c.value
     if (noop && tx.keyAuthorization) continue
     const vault = net.collateralVault ? lower(net.collateralVault) : null
-    if (to !== lower(net.token) && to !== lower(ACCOUNT_KEYCHAIN) && to !== vault) throw new RelayPolicyError(`call target not sponsored: ${to}`)
+    // collateral that earns: the Earn vault, its share token and the vault that locks the shares
+    const earnTargets = earn ? [earn.vault, earn.share, earn.collateral].map(lower) : []
+    if (to !== lower(net.token) && to !== lower(ACCOUNT_KEYCHAIN) && to !== vault && !earnTargets.includes(to as Address)) throw new RelayPolicyError(`call target not sponsored: ${to}`)
   }
   const day = new Date().toISOString().slice(0, 10)
   const c = counts.get(from)

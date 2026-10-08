@@ -95,7 +95,9 @@ export async function releaseCollateral(wallet: Address, amount: bigint) {
 async function releaseLocked(wallet: Address, amount: bigint) {
   const row = await liveLine(wallet)
   if (row.status !== 'active') throw new UserError('pay what’s overdue first; collateral stays locked while a bill is late')
-  if (amount <= 0n || amount > BigInt(row.secured)) throw new UserError('that’s more than your collateral')
+  // the Earn-backed part of the secured limit is unlocked separately (earncollateral.ts)
+  const plain = BigInt(row.secured) - BigInt(row.secured_earn ?? 0)
+  if (amount <= 0n || amount > plain) throw new UserError('that’s more than your collateral')
   const limit = BigInt(row.credit_limit)
   const available = await tokenBalance(row.credit_account)
   const owed = limit > available ? limit - available : 0n
@@ -144,6 +146,7 @@ export async function seizeCollateralOnDefault(lineId: number | string) {
     const r = await vaultWrite('release', [borrower, rest])
     await audit({ lineId: row.id, actor: 'servicer', action: 'collateral.released', detail: { amount: rest, reason: 'not needed after default' }, txHash: r.transactionHash })
   }
-  await sql`UPDATE lines SET secured=0, updated_at=now() WHERE id=${row.id}`
+  // the Earn part is settled by seizeEarnOnDefault, which runs right after this
+  await sql`UPDATE lines SET secured=secured_earn, updated_at=now() WHERE id=${row.id}`
   await maybeSettle(row.id)
 }

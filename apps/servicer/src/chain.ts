@@ -1,9 +1,9 @@
 import { createClient, http, type Address, type Hex } from 'viem'
-import { getBlockNumber, getLogs, readContract, waitForTransactionReceipt, writeContract } from 'viem/actions'
+import { getBlockNumber, getLogs, readContract, sendTransactionSync, waitForTransactionReceipt, writeContract } from 'viem/actions'
 import { parseAbiItem } from 'viem'
 import { Abis, Account, Actions } from 'viem/tempo'
 import { ACCOUNT_KEYCHAIN, collateralVaultAbi, creditTermsAbi, keycardRegistryAbi, lineBookAbi } from '@keycard/sdk'
-import { keys, net } from './config'
+import { earn, keys, net } from './config'
 
 export const chain = net.chain.extend({ feeToken: net.feeToken })
 /** Reads may retry; WRITES must never be auto-retried by the transport (double-send hazard). */
@@ -38,8 +38,9 @@ export async function sponsoredTransfer(p: { account: any; to: Address; amount: 
       to: p.to,
       amount: p.amount,
       memo: p.memo,
-      // a sender cannot be its own fee payer ("fee payer cannot resolve to sender")
-      ...(p.account.address.toLowerCase() === treasury.address.toLowerCase() ? {} : { feePayer: treasury }),
+      // a sender cannot be its own fee payer ("fee payer cannot resolve to sender"). Treasury-paid sends use an
+      // expiring nonce like sponsored ones do, so concurrent sends (two cards opening at once) can't collide
+      ...(p.account.address.toLowerCase() === treasury.address.toLowerCase() ? { nonceKey: 'expiring' } : { feePayer: treasury }),
     } as any),
   )
   const receipt = (r as any).receipt
@@ -212,4 +213,35 @@ export async function vaultWrite(functionName: string, args: readonly unknown[])
 
 export async function vaultRead<T>(functionName: string, args: readonly unknown[] = []): Promise<T> {
   return (await readContract(publicClient, { address: net.collateralVault!, abi: collateralVaultAbi, functionName, args } as any)) as T
+}
+
+// ---------------- Collateral that earns: Tempo Earn vault + the CollateralVault holding its shares ----------------
+
+export async function earnCollateralWrite(functionName: string, args: readonly unknown[]) {
+  if (!earn) throw new Error('Earn collateral not deployed')
+  const hash = await sendWithBackoff(() => writeContract(clientFor(servicer), { address: earn!.collateral, abi: collateralVaultAbi, functionName, args, feePayer: treasury } as any))
+  const receipt = await waitForTransactionReceipt(publicClient, { hash })
+  if (receipt.status !== 'success') throw new Error(`EarnCollateralVault.${functionName} reverted ${hash}`)
+  return receipt
+}
+
+export async function earnCollateralRead<T>(functionName: string, args: readonly unknown[] = []): Promise<T> {
+  return (await readContract(publicClient, { address: earn!.collateral, abi: collateralVaultAbi, functionName, args } as any)) as T
+}
+
+/** What `shares` Earn shares are worth in the stablecoin right now (the vault's own quote, after its fees). */
+export async function earnValue(shares: bigint): Promise<bigint> {
+  if (shares === 0n) return 0n
+  return (await readContract(publicClient, { address: earn!.vault, abi: Abis.earnVault, functionName: 'previewRedeem', args: [shares] })) as bigint
+}
+
+export async function earnShareBalance(owner: Address): Promise<bigint> {
+  return (await readContract(publicClient, { address: earn!.share, abi: Abis.tip20, functionName: 'balanceOf', args: [owner] } as any)) as bigint
+}
+
+/** A batch of calls sent by the treasury (fees in the fee token), e.g. approve + redeem. */
+export async function treasuryCalls(calls: { to: Address; data: Hex }[]) {
+  const r: any = await sendWithBackoff(() => sendTransactionSync(treasuryClient, { calls, nonceKey: 'expiring' } as any))
+  if (r.status !== 'success') throw new Error(`treasury batch reverted ${r.transactionHash}`)
+  return r as { transactionHash: Hex; status: string }
 }
