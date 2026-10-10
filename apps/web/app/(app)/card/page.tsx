@@ -338,9 +338,9 @@ export default function CardPage() {
         <TermsNote cfg={cfg} />
       </section>
 
-      <Secured line={line} collateral={me?.collateral} cfg={cfg} walletBal={walletBal} onChange={load} />
-
       <EarnCollateral line={line} earn={me?.earn} cfg={cfg} walletBal={walletBal} onChange={load} />
+
+      <Secured line={line} collateral={me?.collateral} cfg={cfg} onChange={load} />
 
       {me?.user && (
         <div id="add">

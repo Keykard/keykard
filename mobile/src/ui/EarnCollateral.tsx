@@ -84,7 +84,7 @@ export function EarnCollateral({ line, earn, cfg, bal, onChange }: { line: any; 
       ) : (
         <>
           <Text v="small" style={{ marginTop: 6 }}>
-            Lock {cfg.tokenSymbol} in a Tempo Earn vault and your limit grows by {Number(ltv) / 100}% of it. It keeps earning while it backs your card, and you get all of it back, with what it earned, when you unlock.
+            Lock {cfg.tokenSymbol} in a Tempo Earn vault and your limit grows {ltv === 10_000n ? '1:1: lock $100, spend $100 more' : `by ${Number(ltv) / 100}% of it`}. It keeps earning while it backs your card, and you get all of it back, with what it earned, when you unlock.
           </Text>
           <Field testID="earn-amount" label="Amount (USD)" keyboardType="decimal-pad" placeholder="50" value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9.]/g, ''))} />
           {bal !== null && base > bal && (

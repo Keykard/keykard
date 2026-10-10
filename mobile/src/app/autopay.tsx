@@ -88,7 +88,7 @@ export default function Autopay() {
           ))}
         </View>
         <Text v="small" style={{ marginTop: 12 }}>On-time streak: {line.onTimeCount}. Two on-time bills in a row move you up a step.</Text>
-        <Link title="Need more? Secure a bigger limit 1:1 ›" style={{ marginTop: 10 }} onPress={() => router.push('/secured')} />
+        <Link title="Need more? Lock collateral that earns ›" style={{ marginTop: 10 }} onPress={() => router.push('/secured')} />
       </Panel>
 
       <Panel>

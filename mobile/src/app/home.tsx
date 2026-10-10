@@ -150,7 +150,7 @@ export default function Home() {
         </Panel>
 
         <Panel>
-          {['active', 'grace', 'frozen'].includes(line.status) && <ListRow icon="▣" title="A bigger limit" sub={BigInt(line.secured ?? '0') > 0n ? `${usd(line.secured)} secured by your collateral` : 'Lock collateral 1:1, spend more'} onPress={() => router.push('/secured')} />}
+          {['active', 'grace', 'frozen'].includes(line.status) && <ListRow icon="▣" title="A bigger limit" sub={BigInt(line.secured ?? '0') > 0n ? `${usd(line.secured)} secured by your collateral` : 'Lock collateral that earns, spend more'} onPress={() => router.push('/secured')} />}
         </Panel>
 
         <Pressable onPress={() => router.push('/family')} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>

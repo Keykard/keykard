@@ -60,7 +60,8 @@ const Env = z.object({
   SHIELD_EVERY: z.coerce.number().int().positive().default(3),
   // collateral that earns (earncollateral.ts): limit given per $1 of Earn collateral value (buffer against value
   // moves), and on testnet only, the simulated yield KEYKARD tops the demo venue up with (0 turns it off)
-  EARN_LTV_BPS: z.coerce.number().int().min(1000).max(10_000).default(9500),
+  // 1:1 on testnet (the demo venue's value can only grow); 95% on mainnet as a buffer against a real vault's moves
+  EARN_LTV_BPS: z.coerce.number().int().min(1000).max(10_000).default(networkName === 'mainnet' ? 9500 : 10_000),
   EARN_SIM_APR_BPS: z.coerce.number().int().min(0).max(2000).default(500),
   EARN_SIM_EVERY_SECONDS: z.coerce.number().int().positive().default(3600),
   ON_TIME_TO_UPGRADE: z.coerce.number().int().positive().default(2),

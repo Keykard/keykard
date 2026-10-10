@@ -19,7 +19,7 @@ import { withLine } from './linelock'
  * Collateral that earns. Same promise as the 1:1 secured line (collateral.ts), but the stablecoins go into a Tempo
  * Earn vault first and the Earn shares are what's locked, in a second CollateralVault:
  *   - one transaction from the borrower: approve → Earn deposit → approve shares → lock-vault deposit;
- *   - the limit grows by EARN_LTV_BPS (95%) of the shares' value: a buffer in case the vault's value moves;
+ *   - the limit grows by EARN_LTV_BPS of the shares' value: 1:1 on testnet, 95% on mainnet as a buffer against value moves;
  *   - the shares keep earning while locked, and the borrower keeps all of it when they unlock;
  *   - KEYKARD can take shares only after a default recorded on LineBook (the vault checks), only enough to cover
  *     what's owed, redeems them, and releases the rest.

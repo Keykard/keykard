@@ -13,14 +13,14 @@ const STEPS = [
   { k: 'how-1', n: '01', title: 'Get a limit.', body: 'Verified in minutes, your first line starts at $20. No collateral, no deposit, no credit history needed.', extra: 'how-1b' },
   { k: 'how-2', n: '02', title: 'Tap to pay.', body: 'Pay any KEYKARD merchant with Face ID, a password on any device, or by tapping a physical NFC card.' },
   { k: 'how-3', n: '03', title: 'Auto-pay, capped by the chain.', body: 'You sign one permission: at most one bill per period, and only to KEYKARD. Tempo enforces the cap, so we physically can’t take more. Revoke it any time.' },
-  { k: 'how-4', n: '04', title: 'Pay on time, grow.', body: 'Two on-time bills in a row raise your limit: $20 → $50 → $100. Need more now? Lock stablecoins as collateral and your limit grows 1:1. Every payment builds a credit file that belongs to you.' },
+  { k: 'how-4', n: '04', title: 'Pay on time, grow.', body: 'Two on-time bills in a row raise your limit: $20 → $50 → $100. Need more now? Lock stablecoins and your limit grows 1:1 while that collateral earns in a Tempo Earn vault. Every payment builds a credit file that belongs to you.' },
 ]
 
 /** After the hackathon: from stablecoin credit to everyday money. Plans, not shipped features. */
 const ROADMAP = [
-  ['Now', 'Live on Tempo testnet', 'Stablecoin credit lines, KEYKARD merchants, a tap-to-pay NFC card, family backup, 1:1 secured limits and repayment from any wallet or exchange.'],
+  ['Now', 'Live on Tempo testnet', 'Stablecoin credit lines, KEYKARD merchants, a tap-to-pay NFC card, family backup, collateral that earns in a Tempo Earn vault (simulated yield on testnet) and repayment from any wallet or exchange.'],
   ['Next', 'Mainnet, real dollars', 'USDC on Tempo mainnet with small, capped limits. Repay from exchanges that already support Tempo, or from any wallet.'],
-  ['Soon', 'Collateral that earns', 'Collateral behind a bigger limit goes into a Tempo Earn vault instead of sitting idle, so it keeps earning while you spend. On Tempo mainnet, an Earn vault for the USDC KEYKARD uses is already live.'],
+  ['Soon', 'Real yield on mainnet', 'Collateral already earns in a Tempo Earn vault on testnet, with simulated yield. On mainnet it moves to a real Earn vault: one for the USDC KEYKARD uses is already live on Tempo.'],
   ['Then', 'Crypto in, cash out', 'Licensed on- and off-ramp partners: top up and repay from a bank account or cash, and merchants are paid out in their local currency.'],
   ['After', 'Any card terminal', 'A virtual and physical KEYKARD on a global card network through an issuing partner, so it works wherever cards do, with the same on-chain limits.'],
 ]
@@ -30,7 +30,7 @@ const FAQ = [
   ['Can KEYKARD take more than I agreed?', 'No. The auto-pay permission is scoped on-chain: one bill per period, capped, and payable only to KEYKARD. The Tempo protocol rejects anything else, even from us.'],
   ['How do you verify who I am (KYC)?', 'With Self. You verify your passport or ID card in the Self app, and Self proves, with zero knowledge, that the document is genuine and government-issued, that you are over 18, not on a sanctions list, and one unique person. We receive the proof, never the document. That check is what lets us lend without a bank account or a credit score.'],
   ['What happens if I miss a payment?', 'Your card pauses and the app shows exactly what’s due and the deadline. A missed bill costs a $1 late fee, then 2% of the overdue amount each billing period, never more than 25% of it in total; family backups never pay fees. Past the deadline it’s recorded on your public credit file, and paying it settles your record. The terms are published on-chain.'],
-  ['Can I borrow more?', 'Yes. Pay on time and your limit climbs on its own. To go higher straight away, lock stablecoins as collateral and your limit grows 1:1. The collateral sits in an on-chain vault; KEYKARD can only take it after a default, and only what you owe. Next: that collateral will earn yield in a Tempo Earn vault while it backs your card.'],
+  ['Can I borrow more?', 'Yes. Pay on time and your limit climbs on its own. To go higher straight away, lock stablecoins and your limit grows 1:1, while that collateral keeps earning in a Tempo Earn vault (simulated yield on testnet). It sits in on-chain vaults; KEYKARD can only take it after a default, and only what you owe.'],
   ['Can I repay from an exchange or another wallet?', 'Yes. Send stablecoins on Tempo to your KEYKARD wallet from an exchange, any wallet or a family member. Auto-pay pays your bill from it, and if a bill is overdue it’s collected as soon as the money arrives.'],
   ['Where can I pay?', 'Today: any KEYKARD merchant, and anyone can become one in a minute. Next: any card terminal, through a card-network partner, with the shop paid in local currency.'],
   ['Do I get rewards?', 'Yes. Every card payment gives 0.5% back, and shops can run their own offers like “10% back”. Cashback pays down your bill first. Pay 3 bills on time in a row and your next late fee is cancelled. Shops pay for it, like with any card, but KEYKARD’s 1% fee is far below the 2–3% card networks charge.'],
@@ -189,7 +189,7 @@ export default function Home() {
             <div>
               {Array.from({ length: 2 }).map((_, j) => (
                 <span key={j}>
-                  Sponsored gas <i /> 0.5% back on every payment <i /> Public credit file <i /> Zero-knowledge KYC <i /> Face ID or password <i /> No collateral needed <i /> 1:1 secured limits <i /> Repay from any wallet <i /> Auto-pay you can revoke <i /> Family backup <i /> Tap-to-pay NFC card <i />
+                  Sponsored gas <i /> 0.5% back on every payment <i /> Public credit file <i /> Zero-knowledge KYC <i /> Face ID or password <i /> No collateral needed <i /> Collateral that earns <i /> Repay from any wallet <i /> Auto-pay you can revoke <i /> Family backup <i /> Tap-to-pay NFC card <i />
                 </span>
               ))}
             </div>

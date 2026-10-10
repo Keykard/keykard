@@ -154,14 +154,14 @@ async function fund(a: Address) {
 
 const send = (x: { root: any }, calls: { to: Address; data: Hex }[]) => rl(() => sendTransactionSync(x.root, { calls, feePayer: true } as any)) as Promise<any>
 
-/** E: lock & earn $20 → limit $20 + $19, yield accrues, unlock → $20+ back in the wallet. */
+/** E: lock & earn $20 → limit $20 + $20, yield accrues, unlock → $20+ back in the wallet. */
 async function lockEarnUnlock() {
   const x = await borrower('E')
   await fund(x.wallet)
   const cfg = await api('/api/config')
-  check('E: config publishes Earn (simulated on testnet)', Boolean(cfg.earn?.vault) && cfg.earn.simulated === true && cfg.earn.ltvBps === 9500, JSON.stringify(cfg.earn))
+  check('E: config publishes Earn (simulated, 1:1 on testnet)', Boolean(cfg.earn?.vault) && cfg.earn.simulated === true && cfg.earn.ltvBps === 10000, JSON.stringify(cfg.earn))
   const prep = await api('/api/earn/prepare', { token: x.token, body: { amount: u('20').toString() } })
-  check('E: prepare: $19 more limit (95%), no new auto-pay, 4 calls', prep.credit === u('19').toString() && prep.mandate === null && prep.calls.length === 4, `credit=${prep.credit}`)
+  check('E: prepare: $20 more limit (1:1), no new auto-pay, 4 calls', prep.credit === u('20').toString() && prep.mandate === null && prep.calls.length === 4, `credit=${prep.credit}`)
   const before = await bal(x.wallet)
   const dep = await send(x, prep.calls)
   check('E: Earn deposit + lock in ONE passkey transaction, fee sponsored', dep.status === 'success', dep.transactionHash)
@@ -169,7 +169,7 @@ async function lockEarnUnlock() {
   const line = await api('/api/earn/confirm', { token: x.token, body: {} })
   const m1 = await me(x.token)
   const credit = BigInt(line.securedEarn)
-  check('E: limit grew by ~95% of the Earn value', credit >= u('18.98') && credit <= u('19') && BigInt(line.limit) === u('20') + credit, `limit=${line.limit} securedEarn=${line.securedEarn}`)
+  check('E: limit grew 1:1 with the Earn value', credit >= u('19.99') && credit <= u('20') && BigInt(line.limit) === u('20') + credit, `limit=${line.limit} securedEarn=${line.securedEarn}`)
   check('E: card can spend the new limit', m1.line.spendable === line.limit, `spendable=${m1.line.spendable}`)
   check('E: /api/me shows the locked Earn position (≤0.01% dust)', BigInt(m1.earn?.lockedShares ?? 0) > 0n && BigInt(m1.earn.value) >= u('19.998'), JSON.stringify(m1.earn))
   let blocked = false
@@ -201,7 +201,7 @@ async function earnDefault(settle: Address, code: string) {
   const dep = await send(x, prep.calls)
   check('F: locked $10 in Earn', dep.status === 'success')
   const line = await api('/api/earn/confirm', { token: x.token, body: {} })
-  check('F: limit ~$29.50', BigInt(line.limit) >= u('29.49'), `limit=${line.limit}`)
+  check('F: limit ~$30 (1:1)', BigInt(line.limit) >= u('29.99'), `limit=${line.limit}`)
   const rest = await bal(x.wallet)
   await Actions.token.transferSync(x.root, { token: net.token, to: privateKeyToAccount(generatePrivateKey()).address, amount: rest, feePayer: true } as any)
   const s = (await rl(() => Actions.token.transferSync(x.card, { token: net.token, to: settle, amount: u('25'), memo: encodePayMemo(code), feePayer: true } as any))) as any
